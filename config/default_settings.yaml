@@ -1,0 +1,70 @@
+app:
+  name: Mac Photo Studio
+  version: 0.1.0-alpha3
+
+paths:
+  photos_root: ~/Photos_Master
+  originals_dir: 01_ORIGINALS
+  working_dir: 02_WORKING
+  exports_dir: 03_EXPORTS
+  delivered_dir: 04_DELIVERED
+  backup_reports_dir: 05_BACKUP_REPORTS
+  admin_dir: 99_ADMIN
+
+applications:
+  digikam:
+    executable: auto
+    flatpak_id: org.kde.digikam
+    appimage_search_dirs:
+      - ~/Applications
+      - ~/Downloads
+  darktable:
+    executable: auto
+    flatpak_id: org.darktable.Darktable
+    appimage_search_dirs:
+      - ~/Applications
+      - ~/Downloads
+
+workflow:
+  catalogue_owner: digiKam
+  raw_editor: darktable
+  modify_memory_cards: false
+  delete_after_import: false
+  no_internal_database: true
+
+filename:
+  policy: preserve_timestamp
+  example: DSC03452_20260704_195812.ARW
+
+media:
+  scan_roots:
+    - /media
+    - /run/media
+    - /mnt
+  raw_extensions:
+    - ARW
+    - CR2
+    - CR3
+    - NEF
+    - RAF
+    - ORF
+    - DNG
+  jpeg_extensions:
+    - JPG
+    - JPEG
+
+backup:
+  enabled: false
+  destinations: []
+
+verification:
+  enabled: true
+  checksum: sha256
+
+gui:
+  remember_last_project: true
+  launch_digikam_after_import: false
+  launch_darktable_after_import: false
+
+travel:
+  default_project: Adriatic_2026

@@ -1,0 +1,6 @@
+[project]
+name = "mac-photo-studio"
+version = "0.1.0-alpha3"
+description = "Linux photography ingestion companion for digiKam and darktable workflows"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]

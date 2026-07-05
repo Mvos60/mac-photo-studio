@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Mac Photo Studio
+Comment=Photography ingestion companion for digiKam and darktable
+Exec=env PYTHONPATH=@INSTALL_DIR@ python3 -m mps.main --gui
+Icon=camera-photo
+Terminal=false
+Type=Application
+Categories=Graphics;Photography;

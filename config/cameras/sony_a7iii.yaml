@@ -1,0 +1,12 @@
+camera:
+  name: Sony A7 III
+  model_patterns:
+    - ILCE-7M3
+    - Sony A7 III
+  raw_extensions:
+    - ARW
+  jpeg_extensions:
+    - JPG
+    - JPEG
+  dual_slot: true
+  default_slot_strategy: raw_jpeg_split
