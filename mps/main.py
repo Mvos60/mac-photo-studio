@@ -13,6 +13,7 @@ from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.health import run_health_checks
 from mps.services.import_planner import create_import_plan
 from mps.services.pairing import pair_paths
+from mps.services.safe_copy import copy_one_file
 from mps.version import get_version
 
 
@@ -138,6 +139,21 @@ def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str)
     return 0
 
 
+def print_copy_one(source: str, destination: str) -> int:
+    result = copy_one_file(Path(source), Path(destination))
+
+    print("Mac Photo Studio Safe Copy")
+    print("=" * 26)
+    print(f"Source:       {result.source}")
+    print(f"Destination:  {result.destination}")
+    print(f"Success:      {result.success}")
+    print(f"Size:         {format_bytes(result.size_bytes)}")
+    print(f"Checksum:     {result.checksum or 'not available'}")
+    print(f"Message:      {result.message}")
+
+    return 0 if result.success else 1
+
+
 def show_config() -> int:
     settings = load_settings()
     print(json.dumps(settings.data, indent=2))
@@ -152,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-path")
     parser.add_argument("--pair-paths", nargs=2, metavar=("RAW_FOLDER", "JPEG_FOLDER"))
     parser.add_argument("--plan-import", nargs=4, metavar=("PROJECT", "DAY", "RAW_FOLDER", "JPEG_FOLDER"))
+    parser.add_argument("--copy-one", nargs=2, metavar=("SOURCE", "DESTINATION"))
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
@@ -173,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
             return print_pair_paths(args.pair_paths[0], args.pair_paths[1])
         if args.plan_import:
             return print_import_plan(args.plan_import[0], args.plan_import[1], args.plan_import[2], args.plan_import[3])
+        if args.copy_one:
+            return print_copy_one(args.copy_one[0], args.copy_one[1])
         if args.show_config:
             return show_config()
         if args.gui:
@@ -188,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  mac-photo-studio --scan-path <folder>")
         print("  mac-photo-studio --pair-paths <raw-folder> <jpeg-folder>")
         print("  mac-photo-studio --plan-import <project> <day> <raw-folder> <jpeg-folder>")
+        print("  mac-photo-studio --copy-one <source> <destination>")
         print("  mac-photo-studio --show-config")
         print("  mac-photo-studio --gui")
         print("  mac-photo-studio --version")
