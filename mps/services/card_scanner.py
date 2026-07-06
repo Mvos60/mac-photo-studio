@@ -51,12 +51,14 @@ def _find_dcim(root: Path) -> Path | None:
 def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
     raw_exts = _extensions(settings, "media.raw_extensions")
     jpg_exts = _extensions(settings, "media.jpeg_extensions")
+    heif_exts = _extensions(settings, "media.heif_extensions")
 
     dcim = _find_dcim(root)
     scan_root = dcim or root
 
     raw_count = 0
     jpeg_count = 0
+    heif_count = 0
     other_count = 0
     total_size = 0
 
@@ -77,6 +79,8 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
             raw_count += 1
         elif ext in jpg_exts:
             jpeg_count += 1
+        elif ext in heif_exts:
+            heif_count += 1
         else:
             other_count += 1
 
@@ -85,6 +89,7 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
         dcim_path=dcim,
         raw_count=raw_count,
         jpeg_count=jpeg_count,
+        heif_count=heif_count,
         other_count=other_count,
         total_size_bytes=total_size,
     )

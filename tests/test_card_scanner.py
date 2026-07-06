@@ -14,6 +14,7 @@ def test_scan_path_counts_raw_and_jpeg(tmp_path: Path):
 
     (dcim / "DSC0001.ARW").write_bytes(b"raw")
     (dcim / "DSC0001.JPG").write_bytes(b"jpg")
+    (dcim / "DSC0002.HEIF").write_bytes(b"heif")
     (dcim / "README.TXT").write_text("note", encoding="utf-8")
 
     settings = Settings(
@@ -21,6 +22,7 @@ def test_scan_path_counts_raw_and_jpeg(tmp_path: Path):
             "media": {
                 "raw_extensions": ["ARW"],
                 "jpeg_extensions": ["JPG", "JPEG"],
+                "heif_extensions": ["HEIF", "HIF", "HEIC"],
             }
         }
     )
@@ -30,6 +32,7 @@ def test_scan_path_counts_raw_and_jpeg(tmp_path: Path):
     assert result.dcim_path == tmp_path / "DCIM"
     assert result.raw_count == 1
     assert result.jpeg_count == 1
+    assert result.heif_count == 1
     assert result.other_count == 1
     assert result.has_photos
 
@@ -42,6 +45,7 @@ def test_scan_path_without_dcim_still_counts_files(tmp_path: Path):
             "media": {
                 "raw_extensions": ["ARW"],
                 "jpeg_extensions": ["JPG", "JPEG"],
+                "heif_extensions": ["HEIF", "HIF", "HEIC"],
             }
         }
     )
