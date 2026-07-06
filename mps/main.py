@@ -11,6 +11,7 @@ from mps.gui.app import run_gui
 from mps.logger import configure_logging
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.health import run_health_checks
+from mps.services.import_planner import create_import_plan
 from mps.services.pairing import pair_paths
 from mps.version import get_version
 
@@ -106,6 +107,37 @@ def print_pair_paths(raw_folder: str, jpeg_folder: str) -> int:
     return 0
 
 
+def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str) -> int:
+    settings = load_settings()
+    plan = create_import_plan(
+        project=project,
+        day=day,
+        raw_folder=Path(raw_folder),
+        jpeg_folder=Path(jpeg_folder),
+        settings=settings,
+    )
+
+    print("Mac Photo Studio Import Plan")
+    print("=" * 28)
+    print(f"Project:      {plan.project}")
+    print(f"Day/session:  {plan.day}")
+    print(f"Destination:  {plan.destination}")
+    print()
+    print("Sources")
+    print(f"  RAW:        {plan.raw_folder}")
+    print(f"  JPEG:       {plan.jpeg_folder}")
+    print()
+    print("Files")
+    print(f"  Pairs:      {plan.pairing.pair_count}")
+    print(f"  RAW only:   {len(plan.pairing.raw_only)}")
+    print(f"  JPEG only:  {len(plan.pairing.jpeg_only)}")
+    print(f"  Total:      {plan.total_source_files}")
+    print(f"  Size:       {format_bytes(plan.estimated_size_bytes)}")
+    print()
+    print("Plan only. No files or folders were created.")
+    return 0
+
+
 def show_config() -> int:
     settings = load_settings()
     print(json.dumps(settings.data, indent=2))
@@ -119,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-cards", action="store_true")
     parser.add_argument("--scan-path")
     parser.add_argument("--pair-paths", nargs=2, metavar=("RAW_FOLDER", "JPEG_FOLDER"))
+    parser.add_argument("--plan-import", nargs=4, metavar=("PROJECT", "DAY", "RAW_FOLDER", "JPEG_FOLDER"))
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
@@ -138,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
             return print_scan_path(args.scan_path)
         if args.pair_paths:
             return print_pair_paths(args.pair_paths[0], args.pair_paths[1])
+        if args.plan_import:
+            return print_import_plan(args.plan_import[0], args.plan_import[1], args.plan_import[2], args.plan_import[3])
         if args.show_config:
             return show_config()
         if args.gui:
@@ -152,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  mac-photo-studio --scan-cards")
         print("  mac-photo-studio --scan-path <folder>")
         print("  mac-photo-studio --pair-paths <raw-folder> <jpeg-folder>")
+        print("  mac-photo-studio --plan-import <project> <day> <raw-folder> <jpeg-folder>")
         print("  mac-photo-studio --show-config")
         print("  mac-photo-studio --gui")
         print("  mac-photo-studio --version")
