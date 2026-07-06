@@ -10,6 +10,7 @@ def test_card_scan_result_has_photos():
         raw_count=1,
         jpeg_count=0,
         heif_count=0,
+        video_count=0,
         other_count=0,
         total_size_bytes=10,
     )
