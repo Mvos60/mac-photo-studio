@@ -1,2 +1,2 @@
 def get_version() -> str:
-    return "0.1.0-alpha3"
+    return "0.2.0-dev"
