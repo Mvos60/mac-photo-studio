@@ -6,6 +6,17 @@ from mps.config import Settings
 from mps.models.card import CardScanResult
 
 
+def format_bytes(size_bytes: int) -> str:
+    """Return a human-readable size string."""
+    if size_bytes >= 1024**3:
+        return f"{size_bytes / (1024**3):.2f} GB"
+    if size_bytes >= 1024**2:
+        return f"{size_bytes / (1024**2):.2f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.2f} KB"
+    return f"{size_bytes} B"
+
+
 def _extensions(settings: Settings, key: str) -> set[str]:
     return {str(ext).lower().lstrip(".") for ext in settings.get(key, [])}
 
@@ -22,15 +33,18 @@ def _candidate_roots(settings: Settings) -> list[Path]:
 def _find_dcim(root: Path) -> Path | None:
     if root.name.upper() == "DCIM":
         return root
+
     direct = root / "DCIM"
     if direct.exists() and direct.is_dir():
         return direct
+
     try:
         for child in root.iterdir():
             if child.is_dir() and child.name.upper() == "DCIM":
                 return child
     except PermissionError:
         return None
+
     return None
 
 
@@ -53,6 +67,7 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
 
     for file in files:
         ext = file.suffix.lower().lstrip(".")
+
         try:
             total_size += file.stat().st_size
         except OSError:
@@ -65,10 +80,21 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
         else:
             other_count += 1
 
-    return CardScanResult(root=root, dcim_path=dcim, raw_count=raw_count, jpeg_count=jpeg_count, other_count=other_count, total_size_bytes=total_size)
+    return CardScanResult(
+        root=root,
+        dcim_path=dcim,
+        raw_count=raw_count,
+        jpeg_count=jpeg_count,
+        other_count=other_count,
+        total_size_bytes=total_size,
+    )
 
 
 def scan_cards(settings: Settings) -> list[CardScanResult]:
+    """Scan configured removable-media roots.
+
+    This operation is strictly read-only.
+    """
     results: list[CardScanResult] = []
     seen: set[Path] = set()
 
@@ -89,3 +115,12 @@ def scan_cards(settings: Settings) -> list[CardScanResult]:
                 results.append(result)
 
     return results
+
+
+def scan_path(path: Path, settings: Settings) -> CardScanResult:
+    """Analyze one explicit folder path.
+
+    This is useful for development and testing when no SD card is inserted.
+    The operation is read-only.
+    """
+    return _scan_photo_root(path.expanduser(), settings)

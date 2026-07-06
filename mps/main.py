@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from mps.config import load_settings
 from mps.exceptions import MacPhotoStudioError
 from mps.gui.app import run_gui
 from mps.logger import configure_logging
-from mps.services.card_scanner import scan_cards
+from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.health import run_health_checks
 from mps.version import get_version
 
@@ -40,16 +41,32 @@ def print_scan_cards() -> int:
         return 0
 
     for idx, card in enumerate(cards, start=1):
-        size_gb = card.total_size_bytes / (1024 ** 3)
         print(f"Card {idx}")
         print(f"  Root:   {card.root}")
         print(f"  DCIM:   {card.dcim_path or 'not found'}")
         print(f"  RAW:    {card.raw_count}")
         print(f"  JPEG:   {card.jpeg_count}")
         print(f"  Other:  {card.other_count}")
-        print(f"  Size:   {size_gb:.2f} GB")
+        print(f"  Size:   {format_bytes(card.total_size_bytes)}")
         print()
 
+    print("Read-only scan complete. No files were modified.")
+    return 0
+
+
+def print_scan_path(path_text: str) -> int:
+    settings = load_settings()
+    card = scan_path(Path(path_text), settings)
+
+    print("Mac Photo Studio Path Scan")
+    print("=" * 26)
+    print(f"Root:   {card.root}")
+    print(f"DCIM:   {card.dcim_path or 'not found'}")
+    print(f"RAW:    {card.raw_count}")
+    print(f"JPEG:   {card.jpeg_count}")
+    print(f"Other:  {card.other_count}")
+    print(f"Size:   {format_bytes(card.total_size_bytes)}")
+    print()
     print("Read-only scan complete. No files were modified.")
     return 0
 
@@ -65,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="store_true")
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--scan-cards", action="store_true")
+    parser.add_argument("--scan-path")
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
@@ -80,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
             return print_health()
         if args.scan_cards:
             return print_scan_cards()
+        if args.scan_path:
+            return print_scan_path(args.scan_path)
         if args.show_config:
             return show_config()
         if args.gui:
@@ -92,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Useful commands:")
         print("  mac-photo-studio --health")
         print("  mac-photo-studio --scan-cards")
+        print("  mac-photo-studio --scan-path <folder>")
         print("  mac-photo-studio --show-config")
         print("  mac-photo-studio --gui")
         print("  mac-photo-studio --version")
