@@ -11,6 +11,7 @@ from mps.gui.app import run_gui
 from mps.logger import configure_logging
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.health import run_health_checks
+from mps.services.pairing import pair_paths
 from mps.version import get_version
 
 
@@ -71,6 +72,40 @@ def print_scan_path(path_text: str) -> int:
     return 0
 
 
+def print_pair_paths(raw_folder: str, jpeg_folder: str) -> int:
+    settings = load_settings()
+    result = pair_paths(Path(raw_folder), Path(jpeg_folder), settings)
+
+    print("Mac Photo Studio Pairing Preview")
+    print("=" * 33)
+    print(f"RAW folder:   {Path(raw_folder).expanduser()}")
+    print(f"JPEG folder:  {Path(jpeg_folder).expanduser()}")
+    print()
+    print(f"Pairs:        {result.pair_count}")
+    print(f"RAW only:     {len(result.raw_only)}")
+    print(f"JPEG only:    {len(result.jpeg_only)}")
+    print()
+
+    if result.raw_only:
+        print("RAW-only files:")
+        for file in result.raw_only[:10]:
+            print(f"  {file}")
+        if len(result.raw_only) > 10:
+            print(f"  ... and {len(result.raw_only) - 10} more")
+        print()
+
+    if result.jpeg_only:
+        print("JPEG-only files:")
+        for file in result.jpeg_only[:10]:
+            print(f"  {file}")
+        if len(result.jpeg_only) > 10:
+            print(f"  ... and {len(result.jpeg_only) - 10} more")
+        print()
+
+    print("Read-only pairing preview complete. No files were modified.")
+    return 0
+
+
 def show_config() -> int:
     settings = load_settings()
     print(json.dumps(settings.data, indent=2))
@@ -83,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--scan-cards", action="store_true")
     parser.add_argument("--scan-path")
+    parser.add_argument("--pair-paths", nargs=2, metavar=("RAW_FOLDER", "JPEG_FOLDER"))
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
@@ -100,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
             return print_scan_cards()
         if args.scan_path:
             return print_scan_path(args.scan_path)
+        if args.pair_paths:
+            return print_pair_paths(args.pair_paths[0], args.pair_paths[1])
         if args.show_config:
             return show_config()
         if args.gui:
@@ -113,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  mac-photo-studio --health")
         print("  mac-photo-studio --scan-cards")
         print("  mac-photo-studio --scan-path <folder>")
+        print("  mac-photo-studio --pair-paths <raw-folder> <jpeg-folder>")
         print("  mac-photo-studio --show-config")
         print("  mac-photo-studio --gui")
         print("  mac-photo-studio --version")
