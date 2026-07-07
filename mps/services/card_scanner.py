@@ -93,6 +93,8 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
             other_count += 1
 
     pair_count = len(raw_stems & jpeg_stems)
+    orphan_raw_count = len(raw_stems - jpeg_stems)
+    orphan_jpeg_count = len(jpeg_stems - raw_stems)
 
     return CardScanResult(
         root=root,
@@ -102,6 +104,8 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
         heif_count=heif_count,
         video_count=video_count,
         pair_count=pair_count,
+        orphan_raw_count=orphan_raw_count,
+        orphan_jpeg_count=orphan_jpeg_count,
         other_count=other_count,
         total_size_bytes=total_size,
     )

@@ -15,6 +15,8 @@ def test_scan_path_counts_raw_and_jpeg(tmp_path: Path):
     (dcim / "DSC0001.ARW").write_bytes(b"raw")
     (dcim / "DSC0001.JPG").write_bytes(b"jpg")
     (dcim / "DSC0002.HEIF").write_bytes(b"heif")
+    (dcim / "DSC0003.ARW").write_bytes(b"raw orphan")
+    (dcim / "DSC0004.JPG").write_bytes(b"jpg orphan")
     (dcim / "C0003.MP4").write_bytes(b"video")
     (dcim / "README.TXT").write_text("note", encoding="utf-8")
 
@@ -33,11 +35,13 @@ def test_scan_path_counts_raw_and_jpeg(tmp_path: Path):
     result = scan_path(tmp_path, settings)
 
     assert result.dcim_path == tmp_path / "DCIM"
-    assert result.raw_count == 1
-    assert result.jpeg_count == 1
+    assert result.raw_count == 2
+    assert result.jpeg_count == 2
     assert result.heif_count == 1
     assert result.video_count == 1
     assert result.pair_count == 1
+    assert result.orphan_raw_count == 1
+    assert result.orphan_jpeg_count == 1
     assert result.other_count == 1
     assert result.has_photos
 
