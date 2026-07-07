@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
@@ -21,3 +21,10 @@ class CardScanResult:
     @property
     def has_photos(self) -> bool:
         return self.raw_count > 0 or self.jpeg_count > 0 or self.heif_count > 0
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable representation."""
+        data = asdict(self)
+        data["root"] = str(self.root)
+        data["dcim_path"] = str(self.dcim_path) if self.dcim_path is not None else None
+        return data
