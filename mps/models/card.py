@@ -12,6 +12,7 @@ class CardScanResult:
     jpeg_count: int
     heif_count: int
     video_count: int
+    pair_count: int
     other_count: int
     total_size_bytes: int
 

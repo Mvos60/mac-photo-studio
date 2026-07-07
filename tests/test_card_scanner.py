@@ -37,6 +37,7 @@ def test_scan_path_counts_raw_and_jpeg(tmp_path: Path):
     assert result.jpeg_count == 1
     assert result.heif_count == 1
     assert result.video_count == 1
+    assert result.pair_count == 1
     assert result.other_count == 1
     assert result.has_photos
 

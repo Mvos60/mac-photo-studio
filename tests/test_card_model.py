@@ -11,6 +11,7 @@ def test_card_scan_result_has_photos():
         jpeg_count=0,
         heif_count=0,
         video_count=0,
+        pair_count=0,
         other_count=0,
         total_size_bytes=10,
     )

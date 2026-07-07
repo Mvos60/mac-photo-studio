@@ -63,6 +63,8 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
     video_count = 0
     other_count = 0
     total_size = 0
+    raw_stems: set[str] = set()
+    jpeg_stems: set[str] = set()
 
     try:
         files = [p for p in scan_root.rglob("*") if p.is_file()]
@@ -79,14 +81,18 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
 
         if ext in raw_exts:
             raw_count += 1
+            raw_stems.add(file.stem)
         elif ext in jpg_exts:
             jpeg_count += 1
+            jpeg_stems.add(file.stem)
         elif ext in heif_exts:
             heif_count += 1
         elif ext in video_exts:
             video_count += 1
         else:
             other_count += 1
+
+    pair_count = len(raw_stems & jpeg_stems)
 
     return CardScanResult(
         root=root,
@@ -95,6 +101,7 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
         jpeg_count=jpeg_count,
         heif_count=heif_count,
         video_count=video_count,
+        pair_count=pair_count,
         other_count=other_count,
         total_size_bytes=total_size,
     )
