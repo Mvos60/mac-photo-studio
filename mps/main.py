@@ -141,7 +141,7 @@ def print_pair_paths(raw_folder: str, jpeg_folder: str) -> int:
     return 0
 
 
-def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str) -> int:
+def build_import_decision(project: str, day: str, raw_folder: str, jpeg_folder: str):
     settings = load_settings()
     plan = create_import_plan(
         project=project,
@@ -150,6 +150,12 @@ def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str)
         jpeg_folder=Path(jpeg_folder),
         settings=settings,
     )
+    decision = create_import_decision(plan)
+    return plan, decision
+
+
+def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str) -> int:
+    plan, decision = build_import_decision(project, day, raw_folder, jpeg_folder)
     decision = create_import_decision(plan)
 
     print("Mac Photo Studio Import Plan")
@@ -173,6 +179,22 @@ def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str)
     print_decision_preview(decision)
 
     print("Plan only. No files or folders were created.")
+    return 0
+
+
+def print_dry_run_import(project: str, day: str, raw_folder: str, jpeg_folder: str) -> int:
+    plan, decision = build_import_decision(project, day, raw_folder, jpeg_folder)
+
+    print("Mac Photo Studio Dry Run Import")
+    print("=" * 31)
+    print(f"Project:      {plan.project}")
+    print(f"Day/session:  {plan.day}")
+    print(f"Destination:  {decision.destination}")
+    print()
+
+    print_decision_preview(decision)
+
+    print("Dry run only. No files or folders were created.")
     return 0
 
 
@@ -205,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-path")
     parser.add_argument("--pair-paths", nargs=2, metavar=("RAW_FOLDER", "JPEG_FOLDER"))
     parser.add_argument("--plan-import", nargs=4, metavar=("PROJECT", "DAY", "RAW_FOLDER", "JPEG_FOLDER"))
+    parser.add_argument("--dry-run-import", nargs=4, metavar=("PROJECT", "DAY", "RAW_FOLDER", "JPEG_FOLDER"))
     parser.add_argument("--copy-one", nargs=2, metavar=("SOURCE", "DESTINATION"))
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
@@ -227,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
             return print_pair_paths(args.pair_paths[0], args.pair_paths[1])
         if args.plan_import:
             return print_import_plan(args.plan_import[0], args.plan_import[1], args.plan_import[2], args.plan_import[3])
+        if args.dry_run_import:
+            return print_dry_run_import(args.dry_run_import[0], args.dry_run_import[1], args.dry_run_import[2], args.dry_run_import[3])
         if args.copy_one:
             return print_copy_one(args.copy_one[0], args.copy_one[1])
         if args.show_config:
@@ -244,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  mac-photo-studio --scan-path <folder>")
         print("  mac-photo-studio --pair-paths <raw-folder> <jpeg-folder>")
         print("  mac-photo-studio --plan-import <project> <day> <raw-folder> <jpeg-folder>")
+        print("  mac-photo-studio --dry-run-import <project> <day> <raw-folder> <jpeg-folder>")
         print("  mac-photo-studio --copy-one <source> <destination>")
         print("  mac-photo-studio --show-config")
         print("  mac-photo-studio --gui")
