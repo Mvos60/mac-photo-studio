@@ -1,1 +1,1 @@
-Sprint 008.7: Add Verification Pass
+Sprint 008.8: Add Chain of Custody provenance records
