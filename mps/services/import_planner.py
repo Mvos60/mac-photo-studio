@@ -18,6 +18,7 @@ class ImportPlan:
     destination: Path
     pairing: PairingResult
     estimated_size_bytes: int
+    warnings: list[str]
 
     @property
     def total_source_files(self) -> int:
@@ -50,6 +51,13 @@ def create_import_plan(
     destination = photos_root / project / day
 
     pairing = pair_paths(raw_folder, jpeg_folder, settings)
+    warnings: list[str] = []
+
+    if pairing.raw_only:
+        warnings.append(f"{len(pairing.raw_only)} RAW file(s) have no matching JPEG")
+
+    if pairing.jpeg_only:
+        warnings.append(f"{len(pairing.jpeg_only)} JPEG file(s) have no matching RAW")
 
     files: list[Path] = []
     for pair in pairing.pairs:
@@ -66,4 +74,5 @@ def create_import_plan(
         destination=destination,
         pairing=pairing,
         estimated_size_bytes=_file_list_size(files),
+         warnings=warnings,
     )

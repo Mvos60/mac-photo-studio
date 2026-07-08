@@ -40,6 +40,7 @@ def test_create_import_plan_does_not_create_destination(tmp_path: Path):
     assert plan.total_source_files == 2
     assert plan.estimated_size_bytes == 6
     assert not plan.destination.exists()
+    assert plan.warnings == []
 
 
 def test_create_import_plan_reports_unmatched_files(tmp_path: Path):
@@ -64,3 +65,4 @@ def test_create_import_plan_reports_unmatched_files(tmp_path: Path):
     assert len(plan.pairing.raw_only) == 1
     assert len(plan.pairing.jpeg_only) == 0
     assert plan.total_source_files == 3
+    assert plan.warnings == ["1 RAW file(s) have no matching JPEG"]
