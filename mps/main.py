@@ -47,6 +47,33 @@ def print_card_summary(card, indent: str = "") -> None:
     print(f"{indent}Size:          {format_bytes(card.total_size_bytes)}")
 
 
+def print_decision_preview(decision) -> None:
+    print("Decision")
+    print(f"  Files:      {decision.total_files}")
+    print(f"  Size:       {format_bytes(decision.estimated_size_bytes)}")
+    print(f"  Operations: {len(decision.copy_operations)}")
+    print()
+
+    print("Copy preview")
+    if decision.copy_operations:
+        for operation in decision.copy_operations[:10]:
+            print(f"  {operation.source}")
+            print(f"    -> {operation.destination}")
+        if len(decision.copy_operations) > 10:
+            print(f"  ... and {len(decision.copy_operations) - 10} more")
+    else:
+        print("  None")
+    print()
+
+    print("Warnings")
+    if decision.warnings:
+        for warning in decision.warnings:
+            print(f"  - {warning}")
+    else:
+        print("  None")
+    print()
+
+
 def print_scan_cards() -> int:
     settings = load_settings()
     cards = scan_cards(settings)
@@ -123,6 +150,7 @@ def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str)
         jpeg_folder=Path(jpeg_folder),
         settings=settings,
     )
+    decision = create_import_decision(plan)
 
     print("Mac Photo Studio Import Plan")
     print("=" * 28)
@@ -141,6 +169,9 @@ def print_import_plan(project: str, day: str, raw_folder: str, jpeg_folder: str)
     print(f"  Total:      {plan.total_source_files}")
     print(f"  Size:       {format_bytes(plan.estimated_size_bytes)}")
     print()
+
+    print_decision_preview(decision)
+
     print("Plan only. No files or folders were created.")
     return 0
 
