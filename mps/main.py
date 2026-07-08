@@ -11,7 +11,7 @@ from mps.gui.app import run_gui
 from mps.logger import configure_logging
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.health import run_health_checks
-from mps.services.import_planner import create_import_plan
+from mps.services.import_planner import create_import_decision, create_import_plan
 from mps.services.pairing import pair_paths
 from mps.services.safe_copy import copy_one_file
 from mps.version import get_version
