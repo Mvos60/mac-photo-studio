@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from mps.models.import_decision import ImportDecision
 from mps.models.import_result import ImportResult
 
 
 def run_import(decision: ImportDecision, dry_run: bool = True) -> ImportResult:
-    """Run an import decision.
+    """Run an import.
 
-    First version is intentionally safe:
-    - no folders are created
-    - no files are copied
-    - no source files are modified
+    Current capabilities:
+      - dry-run preview
+      - create destination folder
+      - no file copies yet
     """
 
     if dry_run:
@@ -20,6 +22,9 @@ def run_import(decision: ImportDecision, dry_run: bool = True) -> ImportResult:
             skipped=len(decision.copy_operations),
             dry_run=True,
         )
+
+    destination: Path = decision.destination
+    destination.mkdir(parents=True, exist_ok=True)
 
     return ImportResult(
         copied=0,
