@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mps.config import Settings
-from mps.models.import_decision import ImportDecision
+from mps.models.import_decision import CopyOperation, ImportDecision
 from mps.services.pairing import PairingResult, pair_paths
 
 
@@ -34,6 +34,19 @@ def _file_list_size(files: list[Path]) -> int:
         except OSError:
             pass
     return total
+
+
+def _planned_source_files(plan: ImportPlan) -> list[Path]:
+    files: list[Path] = []
+
+    for pair in plan.pairing.pairs:
+        files.append(pair.raw_path)
+        files.append(pair.jpeg_path)
+
+    files.extend(plan.pairing.raw_only)
+    files.extend(plan.pairing.jpeg_only)
+
+    return files
 
 
 def create_import_plan(
@@ -83,19 +96,20 @@ def create_import_plan(
 def create_import_decision(plan: ImportPlan) -> ImportDecision:
     """Convert an ImportPlan into an ImportDecision."""
 
-    source_files: list[Path] = []
+    source_files = _planned_source_files(plan)
 
-    for pair in plan.pairing.pairs:
-        source_files.append(pair.raw_path)
-        source_files.append(pair.jpeg_path)
-
-    source_files.extend(plan.pairing.raw_only)
-    source_files.extend(plan.pairing.jpeg_only)
+    copy_operations = [
+        CopyOperation(
+            source=source,
+            destination=plan.destination / source.name,
+        )
+        for source in source_files
+    ]
 
     return ImportDecision(
         destination=plan.destination,
         total_files=plan.total_source_files,
         estimated_size_bytes=plan.estimated_size_bytes,
-        source_files=source_files,
+        copy_operations=copy_operations,
         warnings=plan.warnings.copy(),
     )
