@@ -11,6 +11,7 @@ def test_import_decision():
         total_files=10,
         estimated_size_bytes=12345,
         warnings=["Example warning"],
+        source_files=[], 
     )
 
     assert decision.destination == Path("/tmp/photos")
@@ -60,3 +61,6 @@ def test_create_import_decision(tmp_path):
     assert decision.total_files == plan.total_source_files
     assert decision.estimated_size_bytes == plan.estimated_size_bytes
     assert decision.warnings == []
+    assert len(decision.source_files) == 2
+    assert raw / "DSC0001.ARW" in decision.source_files
+    assert jpg / "DSC0001.JPG" in decision.source_files

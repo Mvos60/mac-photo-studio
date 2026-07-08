@@ -11,4 +11,5 @@ class ImportDecision:
     destination: Path
     total_files: int
     estimated_size_bytes: int
+    source_files: list[Path]
     warnings: list[str]

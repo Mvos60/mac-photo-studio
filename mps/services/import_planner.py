@@ -83,9 +83,19 @@ def create_import_plan(
 def create_import_decision(plan: ImportPlan) -> ImportDecision:
     """Convert an ImportPlan into an ImportDecision."""
 
+    source_files: list[Path] = []
+
+    for pair in plan.pairing.pairs:
+        source_files.append(pair.raw_path)
+        source_files.append(pair.jpeg_path)
+
+    source_files.extend(plan.pairing.raw_only)
+    source_files.extend(plan.pairing.jpeg_only)
+
     return ImportDecision(
         destination=plan.destination,
         total_files=plan.total_source_files,
         estimated_size_bytes=plan.estimated_size_bytes,
+        source_files=source_files,
         warnings=plan.warnings.copy(),
     )
