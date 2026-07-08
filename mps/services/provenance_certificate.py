@@ -1,54 +1,36 @@
-from __future__ import annotations
+from uuid import uuid4
 
-import hashlib
-from pathlib import Path
-
-from mps.models.provenance_certificate import PhotoProvenanceCertificate
-
-
-_CHUNK_SIZE = 65536
+from mps.models.provenance_certificate import (
+    ProvenanceCertificate,
+    utc_now_iso,
+)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(_CHUNK_SIZE), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _new_certificate_id() -> str:
+    return f"MPS-CERT-{uuid4()}"
 
 
-def _short(value: str, length: int = 12) -> str:
-    return value.replace("-", "")[:length].upper()
+def _new_provenance_id() -> str:
+    return f"MPS-PROV-{uuid4()}"
 
 
-def build_certificate_id(session_id: str, sha256: str) -> str:
-    return f"MPS-{_short(session_id, 8)}-{sha256[:12].upper()}"
-
-
-def create_photo_provenance_certificate(
+def create_certificate(
     *,
-    provenance_id: str,
     session_id: str,
-    source_path: str | Path,
-    destination_path: str | Path,
-    verification_status: str = "verified",
-    camera: str | None = None,
-    source_media: str | None = None,
-    mps_version: str | None = None,
-) -> PhotoProvenanceCertificate:
-    destination = Path(destination_path)
-    sha256 = _sha256(destination)
-    certificate_id = build_certificate_id(session_id, sha256)
-
-    return PhotoProvenanceCertificate(
-        certificate_id=certificate_id,
-        provenance_id=provenance_id,
+    source_path: str,
+    destination_path: str,
+    sha256: str,
+    camera_model: str,
+    manifest_path: str,
+) -> ProvenanceCertificate:
+    return ProvenanceCertificate(
+        certificate_id=_new_certificate_id(),
+        provenance_id=_new_provenance_id(),
         session_id=session_id,
-        source_path=str(source_path),
-        destination_path=str(destination),
+        source_path=source_path,
+        destination_path=destination_path,
         sha256=sha256,
-        verification_status=verification_status,
-        camera=camera,
-        source_media=source_media,
-        mps_version=mps_version,
+        camera_model=camera_model,
+        manifest_path=manifest_path,
+        created_at=utc_now_iso(),
     )

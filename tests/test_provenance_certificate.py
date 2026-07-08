@@ -1,77 +1,75 @@
 import json
 
-from mps.services.provenance_certificate import (
-    build_certificate_id,
-    create_photo_provenance_certificate,
-)
+from mps.models.provenance_certificate import ProvenanceCertificate
+from mps.services.provenance_certificate import create_certificate
 
 
-def test_build_certificate_id_is_stable():
-    certificate_id = build_certificate_id(
-        "12345678-aaaa-bbbb-cccc-000000000000",
-        "abcdef1234567890",
+def test_create_certificate():
+    cert = create_certificate(
+        session_id="session-001",
+        source_path="/card/DCIM/DSC0001.ARW",
+        destination_path="/photos/DSC0001.ARW",
+        sha256="abcdef123456",
+        camera_model="Sony A7 III",
+        manifest_path="/photos/import_manifest.json",
     )
 
-    assert certificate_id == "MPS-12345678-ABCDEF123456"
+    assert cert.certificate_id.startswith("MPS-CERT-")
+    assert cert.provenance_id.startswith("MPS-PROV-")
+    assert cert.session_id == "session-001"
+    assert cert.sha256 == "abcdef123456"
+    assert cert.camera_model == "Sony A7 III"
 
 
-def test_create_photo_provenance_certificate_hashes_destination(tmp_path):
-    destination = tmp_path / "photo.ARW"
-    destination.write_bytes(b"original raw data")
-
-    certificate = create_photo_provenance_certificate(
-        provenance_id="prov-001",
-        session_id="12345678-aaaa-bbbb-cccc-000000000000",
-        source_path="/media/card/photo.ARW",
-        destination_path=destination,
-        camera="Sony A7 III",
-        source_media="SDCARD-001",
-        mps_version="0.2.0-dev",
+def test_certificate_to_dict():
+    cert = ProvenanceCertificate(
+        certificate_id="CERT-1",
+        provenance_id="PROV-1",
+        session_id="SESSION-1",
+        source_path="/src",
+        destination_path="/dst",
+        sha256="123",
+        camera_model="Sony",
+        manifest_path="/manifest.json",
+        created_at="2026-07-08T12:00:00+00:00",
     )
 
-    assert certificate.certificate_id.startswith("MPS-12345678-")
-    assert certificate.provenance_id == "prov-001"
-    assert certificate.session_id == "12345678-aaaa-bbbb-cccc-000000000000"
-    assert certificate.camera == "Sony A7 III"
-    assert certificate.source_media == "SDCARD-001"
-    assert certificate.mps_version == "0.2.0-dev"
-    assert certificate.verification_status == "verified"
-    assert len(certificate.sha256) == 64
+    data = cert.to_dict()
+
+    assert data["certificate_id"] == "CERT-1"
+    assert data["provenance_id"] == "PROV-1"
+    assert data["session_id"] == "SESSION-1"
 
 
-def test_certificate_serializes_to_dict(tmp_path):
-    destination = tmp_path / "photo.ARW"
-    destination.write_bytes(b"raw")
-
-    certificate = create_photo_provenance_certificate(
-        provenance_id="prov-002",
-        session_id="87654321-aaaa-bbbb-cccc-000000000000",
-        source_path="/media/card/photo.ARW",
-        destination_path=destination,
+def test_certificate_to_json():
+    cert = ProvenanceCertificate(
+        certificate_id="CERT-2",
+        provenance_id="PROV-2",
+        session_id="SESSION-2",
+        source_path="/src",
+        destination_path="/dst",
+        sha256="456",
+        camera_model="Sony",
+        manifest_path="/manifest.json",
+        created_at="2026-07-08T12:00:00+00:00",
     )
 
-    data = certificate.to_dict()
+    payload = json.loads(cert.to_json())
 
-    assert data["certificate_id"].startswith("MPS-87654321-")
-    assert data["provenance_id"] == "prov-002"
-    assert data["destination_path"] == str(destination)
-    assert "created_at" in data
-
-
-def test_certificate_writes_json_file(tmp_path):
-    destination = tmp_path / "photo.ARW"
-    destination.write_bytes(b"raw")
-    output = tmp_path / "certificate.json"
-
-    certificate = create_photo_provenance_certificate(
-        provenance_id="prov-003",
-        session_id="99999999-aaaa-bbbb-cccc-000000000000",
-        source_path="/media/card/photo.ARW",
-        destination_path=destination,
+    assert payload["certificate_id"] == "CERT-2"
+    assert payload["provenance_id"] == "PROV-2"
+    assert payload["sha256"] == "456"
+def test_json_ends_with_newline():
+    cert = ProvenanceCertificate(
+        certificate_id="CERT",
+        provenance_id="PROV",
+        session_id="SESSION",
+        source_path="/src",
+        destination_path="/dst",
+        sha256="123",
+        camera_model="Sony",
+        manifest_path="/manifest.json",
+        created_at="2026-07-08T12:00:00+00:00",
     )
 
-    certificate.write_json(output)
-
-    loaded = json.loads(output.read_text(encoding="utf-8"))
-    assert loaded["certificate_id"].startswith("MPS-99999999-")
-    assert loaded["sha256"] == certificate.sha256
+    assert cert.to_json().endswith("\n")
