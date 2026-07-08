@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mps.config import Settings
+from mps.models.import_decision import ImportDecision
 from mps.services.pairing import PairingResult, pair_paths
 
 
@@ -51,6 +52,7 @@ def create_import_plan(
     destination = photos_root / project / day
 
     pairing = pair_paths(raw_folder, jpeg_folder, settings)
+
     warnings: list[str] = []
 
     if pairing.raw_only:
@@ -74,5 +76,16 @@ def create_import_plan(
         destination=destination,
         pairing=pairing,
         estimated_size_bytes=_file_list_size(files),
-         warnings=warnings,
+        warnings=warnings,
+    )
+
+
+def create_import_decision(plan: ImportPlan) -> ImportDecision:
+    """Convert an ImportPlan into an ImportDecision."""
+
+    return ImportDecision(
+        destination=plan.destination,
+        total_files=plan.total_source_files,
+        estimated_size_bytes=plan.estimated_size_bytes,
+        warnings=plan.warnings.copy(),
     )
