@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from mps.models.import_decision import ImportDecision
+from mps.models.import_progress import ImportProgress
 from mps.models.import_result import ImportResult
 from mps.services.safe_copy import copy_one_file
 
 
-def run_import(decision: ImportDecision, dry_run: bool = True) -> ImportResult:
-    """Run an import.
-
-    Current capabilities:
-
-    - dry run
-    - create destination folder
-    - copy all files using the Safe Copy engine
-    """
+def run_import(
+    decision: ImportDecision,
+    dry_run: bool = True,
+    progress_callback: Callable[[ImportProgress], None] | None = None,
+) -> ImportResult:
+    """Run an import."""
 
     if dry_run:
         return ImportResult(
@@ -28,7 +28,20 @@ def run_import(decision: ImportDecision, dry_run: bool = True) -> ImportResult:
     copied = 0
     failed = 0
 
-    for operation in decision.copy_operations:
+    total = len(decision.copy_operations)
+
+    for index, operation in enumerate(decision.copy_operations, start=1):
+
+        if progress_callback is not None:
+            progress_callback(
+                ImportProgress(
+                    current=index,
+                    total=total,
+                    source=operation.source,
+                    destination=operation.destination,
+                )
+            )
+
         result = copy_one_file(
             operation.source,
             operation.destination,
