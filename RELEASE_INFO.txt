@@ -1,0 +1,8 @@
+Project       : Mac Photo Studio
+Sprint        : 008.7
+Codename      : Verification Pass
+Release       : RC1
+Target branch : alpha4-cardscanner
+Target repo   : ~/Downloads/mac-photo-studio
+Expected tests: 61 passed
+Commit message: Sprint 008.7: Add Verification Pass

@@ -1,1 +1,1 @@
-Sprint 008.6: Add Resume Engine RC1
+Sprint 008.7: Add Verification Pass
