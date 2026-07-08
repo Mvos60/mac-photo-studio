@@ -5,23 +5,26 @@ from mps.services.import_engine import run_import
 
 
 def _decision(tmp_path: Path) -> ImportDecision:
+    source = tmp_path / "source.ARW"
+    source.write_bytes(b"photo-data")
+
     destination = tmp_path / "Photos"
 
     return ImportDecision(
         destination=destination,
         total_files=1,
-        estimated_size_bytes=3,
+        estimated_size_bytes=source.stat().st_size,
         copy_operations=[
             CopyOperation(
-                source=tmp_path / "source.ARW",
-                destination=destination / "source.ARW",
+                source=source,
+                destination=destination / source.name,
             )
         ],
         warnings=[],
     )
 
 
-def test_import_engine_dry_run_copies_nothing(tmp_path):
+def test_import_engine_dry_run(tmp_path):
     decision = _decision(tmp_path)
 
     result = run_import(decision, dry_run=True)
@@ -33,15 +36,17 @@ def test_import_engine_dry_run_copies_nothing(tmp_path):
     assert not decision.destination.exists()
 
 
-def test_import_engine_creates_destination(tmp_path):
+def test_import_engine_copies_first_file(tmp_path):
     decision = _decision(tmp_path)
-
-    assert not decision.destination.exists()
 
     result = run_import(decision, dry_run=False)
 
-    assert decision.destination.exists()
-    assert decision.destination.is_dir()
+    copied_file = decision.destination / "source.ARW"
 
+    assert copied_file.exists()
+    assert copied_file.read_bytes() == b"photo-data"
+
+    assert result.copied == 1
+    assert result.failed == 0
+    assert result.skipped == 0
     assert result.success
-    assert not result.dry_run
