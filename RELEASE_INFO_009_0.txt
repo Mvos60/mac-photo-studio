@@ -1,0 +1,6 @@
+Mac Photo Studio
+Sprint: 009.0
+Codename: Photo Provenance Certificate
+Release: RC1
+Expected tests: 72 passed
+Commit: Sprint 009.0: Add Photo Provenance Certificate RC1
