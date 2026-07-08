@@ -1,0 +1,5 @@
+mps/models/resume_plan.py
+mps/services/resume_engine.py
+tests/test_resume_engine.py
+docs/Sprint_008_6_ResumeEngine.md
+COMMIT_MESSAGE.txt
