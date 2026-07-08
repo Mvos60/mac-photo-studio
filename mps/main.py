@@ -31,6 +31,22 @@ def print_health() -> int:
     return 0
 
 
+def print_card_summary(card, indent: str = "") -> None:
+    print(f"{indent}Root:          {card.root}")
+    print(f"{indent}DCIM:          {card.dcim_path or 'not found'}")
+    print(f"{indent}RAW:           {card.raw_count}")
+    print(f"{indent}JPEG:          {card.jpeg_count}")
+    print(f"{indent}HEIF:          {card.heif_count}")
+    print(f"{indent}Video:         {card.video_count}")
+    print()
+    print(f"{indent}Pairs:         {card.pair_count}")
+    print(f"{indent}RAW orphans:   {card.orphan_raw_count}")
+    print(f"{indent}JPEG orphans:  {card.orphan_jpeg_count}")
+    print()
+    print(f"{indent}Other:         {card.other_count}")
+    print(f"{indent}Size:          {format_bytes(card.total_size_bytes)}")
+
+
 def print_scan_cards() -> int:
     settings = load_settings()
     cards = scan_cards(settings)
@@ -45,19 +61,7 @@ def print_scan_cards() -> int:
 
     for idx, card in enumerate(cards, start=1):
         print(f"Card {idx}")
-        print(f"  Root:   {card.root}")
-        print(f"  DCIM:   {card.dcim_path or 'not found'}")
-        print(f"  RAW:           {card.raw_count}")
-        print(f"  JPEG:          {card.jpeg_count}")
-        print(f"  HEIF:          {card.heif_count}")
-        print(f"  Video:         {card.video_count}")
-        print()
-        print(f"  Pairs:         {card.pair_count}")
-        print(f"  RAW orphans:   {card.orphan_raw_count}")
-        print(f"  JPEG orphans:  {card.orphan_jpeg_count}")
-        print()
-        print(f"  Other:         {card.other_count}")
-        print(f"  Size:          {format_bytes(card.total_size_bytes)}")
+        print_card_summary(card, indent="  ")
         print()
 
     print("Read-only scan complete. No files were modified.")
@@ -70,19 +74,7 @@ def print_scan_path(path_text: str) -> int:
 
     print("Mac Photo Studio Path Scan")
     print("=" * 26)
-    print(f"Root:   {card.root}")
-    print(f"DCIM:   {card.dcim_path or 'not found'}")
-    print(f"RAW:           {card.raw_count}")
-    print(f"JPEG:          {card.jpeg_count}")
-    print(f"HEIF:          {card.heif_count}")
-    print(f"Video:         {card.video_count}")
-    print()
-    print(f"Pairs:         {card.pair_count}")
-    print(f"RAW orphans:   {card.orphan_raw_count}")
-    print(f"JPEG orphans:  {card.orphan_jpeg_count}")
-    print()
-    print(f"Other:         {card.other_count}")
-    print(f"Size:          {format_bytes(card.total_size_bytes)}")
+    print_card_summary(card)
     print()
     print("Read-only scan complete. No files were modified.")
     return 0
