@@ -33,14 +33,17 @@ def _decision(tmp_path: Path) -> ImportDecision:
 
 def test_import_engine_dry_run(tmp_path):
     decision = _decision(tmp_path)
+    log_path = tmp_path / "import.log"
 
-    result = run_import(decision, dry_run=True)
+    result = run_import(decision, dry_run=True, log_path=log_path)
 
     assert result.dry_run
     assert result.copied == 0
     assert result.failed == 0
     assert result.skipped == 2
+    assert result.log_path is None
     assert not decision.destination.exists()
+    assert not log_path.exists()
 
 
 def test_import_engine_copies_all_files(tmp_path):
@@ -61,3 +64,39 @@ def test_import_engine_copies_all_files(tmp_path):
     assert result.failed == 0
     assert result.skipped == 0
     assert result.success
+
+
+def test_import_engine_reports_progress(tmp_path):
+    decision = _decision(tmp_path)
+    seen: list[tuple[int, int, str]] = []
+
+    def collect(progress):
+        seen.append((progress.current, progress.total, progress.source.name))
+
+    result = run_import(decision, dry_run=False, progress_callback=collect)
+
+    assert result.success
+    assert seen == [
+        (1, 2, "source1.ARW"),
+        (2, 2, "source1.JPG"),
+    ]
+
+
+def test_import_engine_writes_log(tmp_path):
+    decision = _decision(tmp_path)
+    log_path = tmp_path / "logs" / "import.log"
+
+    result = run_import(decision, dry_run=False, log_path=log_path)
+
+    assert result.success
+    assert result.log_path == log_path
+    assert log_path.exists()
+
+    text = log_path.read_text(encoding="utf-8")
+
+    assert "Mac Photo Studio Import Log" in text
+    assert "source1.ARW" in text
+    assert "source1.JPG" in text
+    assert "Copied: 2" in text
+    assert "Failed: 0" in text
+    assert "Success: True" in text

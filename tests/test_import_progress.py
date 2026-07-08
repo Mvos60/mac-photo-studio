@@ -12,3 +12,14 @@ def test_import_progress_percent():
     )
 
     assert progress.percent == 30
+
+
+def test_import_progress_percent_with_zero_total():
+    progress = ImportProgress(
+        current=0,
+        total=0,
+        source=Path("/tmp/source"),
+        destination=Path("/tmp/destination"),
+    )
+
+    assert progress.percent == 100
