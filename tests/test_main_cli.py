@@ -65,6 +65,10 @@ def test_cli_real_import_copies_files_and_writes_provenance(tmp_path, monkeypatc
         "mps.main.load_settings",
         lambda: _settings(tmp_path),
     )
+    monkeypatch.setattr(
+        "mps.main.identify_camera_model",
+        lambda path: "ILCE-7M3",
+    )
 
     exit_code = main(
         [
@@ -85,6 +89,7 @@ def test_cli_real_import_copies_files_and_writes_provenance(tmp_path, monkeypatc
 
     assert exit_code == 0
     assert "Mac Photo Studio Import" in output
+    assert "Camera:       ILCE-7M3" in output
     assert "Success:      True" in output
 
     assert (destination / "DSC0001.ARW").read_bytes() == b"raw-data"

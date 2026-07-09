@@ -12,6 +12,7 @@ from mps.logger import configure_logging
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.cli_output import print_card_summary, print_decision_preview
 from mps.services.health import run_health_checks
+from mps.services.camera_identifier import identify_camera_model
 from mps.services.import_engine import run_import
 from mps.services.import_planner import create_import_decision, create_import_plan
 from mps.services.pairing import pair_paths
@@ -175,6 +176,11 @@ def run_real_import(year: int, project: str, day: str, raw_folder: str, jpeg_fol
     print(f"Project:      {plan.project}")
     print(f"Day/session:  {plan.day}")
     print(f"Destination:  {decision.destination}")
+
+    first_source = decision.copy_operations[0].source
+    camera_model = identify_camera_model(first_source)
+
+    print(f"Camera:       {camera_model}")
     print()
     print("Starting verified copy...")
 
@@ -183,7 +189,7 @@ def run_real_import(year: int, project: str, day: str, raw_folder: str, jpeg_fol
         dry_run=False,
         log_path=log_path,
         write_provenance=True,
-        camera_model="Unknown camera",
+        camera_model=camera_model,
         manifest_path=decision.destination / "import_manifest.json",
     )
 
