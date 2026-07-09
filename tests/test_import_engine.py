@@ -100,3 +100,67 @@ def test_import_engine_writes_log(tmp_path):
     assert "Copied: 2" in text
     assert "Failed: 0" in text
     assert "Success: True" in text
+
+
+def test_import_engine_writes_provenance_certificates_and_index(tmp_path):
+    decision = _decision(tmp_path)
+
+    result = run_import(
+        decision,
+        dry_run=False,
+        write_provenance=True,
+        camera_model="Sony A7 III",
+        manifest_path=decision.destination / "import_manifest.json",
+    )
+
+    provenance_dir = decision.destination / "provenance"
+    index_file = provenance_dir / "certificate_index.json"
+
+    assert result.success
+    assert provenance_dir.exists()
+    assert index_file.exists()
+
+    certificate_files = sorted(
+        path
+        for path in provenance_dir.glob("MPS-CERT-*.json")
+    )
+
+    assert len(certificate_files) == 2
+
+    index_text = index_file.read_text(encoding="utf-8")
+
+    assert "Sony A7 III" in index_text
+    assert "source1.ARW" in index_text
+    assert "source1.JPG" in index_text
+
+
+def test_import_engine_writes_provenance_certificates_and_index(tmp_path):
+    decision = _decision(tmp_path)
+
+    result = run_import(
+        decision,
+        dry_run=False,
+        write_provenance=True,
+        camera_model="Sony A7 III",
+        manifest_path=decision.destination / "import_manifest.json",
+    )
+
+    provenance_dir = decision.destination / "provenance"
+    index_file = provenance_dir / "certificate_index.json"
+
+    assert result.success
+    assert provenance_dir.exists()
+    assert index_file.exists()
+
+    certificate_files = sorted(
+        path
+        for path in provenance_dir.glob("MPS-CERT-*.json")
+    )
+
+    assert len(certificate_files) == 2
+
+    index_text = index_file.read_text(encoding="utf-8")
+
+    assert "Sony A7 III" in index_text
+    assert "source1.ARW" in index_text
+    assert "source1.JPG" in index_text

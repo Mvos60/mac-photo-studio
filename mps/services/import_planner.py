@@ -20,6 +20,7 @@ class ImportPlan:
     pairing: PairingResult
     estimated_size_bytes: int
     warnings: list[str]
+    year: int | None = None
 
     @property
     def total_source_files(self) -> int:
@@ -49,12 +50,20 @@ def _planned_source_files(plan: ImportPlan) -> list[Path]:
     return files
 
 
+def _build_destination(photos_root: Path, project: str, day: str, year: int | None) -> Path:
+    if year is None:
+        return photos_root / project / day
+
+    return photos_root / str(year) / project / day
+
+
 def create_import_plan(
     project: str,
     day: str,
     raw_folder: Path,
     jpeg_folder: Path,
     settings: Settings,
+    year: int | None = None,
 ) -> ImportPlan:
     """Create a read-only import plan.
 
@@ -62,7 +71,7 @@ def create_import_plan(
     """
 
     photos_root = Path(settings.get("paths.photos_root", "~/Photos_Master")).expanduser()
-    destination = photos_root / project / day
+    destination = _build_destination(photos_root, project, day, year)
 
     pairing = pair_paths(raw_folder, jpeg_folder, settings)
 
@@ -90,6 +99,7 @@ def create_import_plan(
         pairing=pairing,
         estimated_size_bytes=_file_list_size(files),
         warnings=warnings,
+        year=year,
     )
 
 
