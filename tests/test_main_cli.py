@@ -103,3 +103,55 @@ def test_cli_real_import_copies_files_and_writes_provenance(tmp_path, monkeypatc
     index_text = index_file.read_text(encoding="utf-8")
     assert "DSC0001.ARW" in index_text
     assert "DSC0001.JPG" in index_text
+
+
+def test_cli_import_command_runs_interactive_import(tmp_path, monkeypatch):
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_interactive_import",
+        lambda settings: called.append(settings),
+    )
+
+    exit_code = main(["import"])
+
+    assert exit_code == 0
+    assert len(called) == 1
+
+
+def test_cli_import_command_accepts_wizard_session(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from mps.models.import_session_request import ImportSessionRequest
+
+    session = ImportSessionRequest(
+        year=2026,
+        project="Adriatic",
+        day="03_Slovenia",
+        raw_folder=Path("/media/raw"),
+        jpeg_folder=Path("/media/jpg"),
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_interactive_import",
+        lambda settings: session,
+    )
+
+    exit_code = main(["import"])
+
+    called.append(session)
+
+    assert exit_code == 0
+    assert called[0].project == "Adriatic"
+    assert called[0].year == 2026
+    assert called[0].day == "03_Slovenia"

@@ -9,11 +9,13 @@ from mps.config import load_settings
 from mps.exceptions import MacPhotoStudioError
 from mps.gui.app import run_gui
 from mps.logger import configure_logging
+from mps.services.camera_identifier import identify_camera_model
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.cli_output import print_card_summary, print_decision_preview
 from mps.services.health import run_health_checks
-from mps.services.camera_identifier import identify_camera_model
 from mps.services.import_engine import run_import
+from mps.services.import_session_builder import build_import_session
+from mps.services.import_wizard_runner import run_interactive_import
 from mps.services.import_planner import create_import_decision, create_import_plan
 from mps.services.pairing import pair_paths
 from mps.services.safe_copy import copy_one_file
@@ -108,13 +110,21 @@ def build_import_decision(
     raw_folder: str,
     jpeg_folder: str,
 ):
-    settings = load_settings()
-    plan = create_import_plan(
+    session = build_import_session(
         year=year,
         project=project,
         day=day,
-        raw_folder=Path(raw_folder),
-        jpeg_folder=Path(jpeg_folder),
+        raw_folder=raw_folder,
+        jpeg_folder=jpeg_folder,
+    )
+
+    settings = load_settings()
+    plan = create_import_plan(
+        year=session.year,
+        project=session.project,
+        day=session.day,
+        raw_folder=session.raw_folder,
+        jpeg_folder=session.jpeg_folder,
         settings=settings,
     )
     decision = create_import_decision(plan)
@@ -205,6 +215,12 @@ def run_real_import(year: int, project: str, day: str, raw_folder: str, jpeg_fol
     return 0 if result.success else 1
 
 
+def run_interactive_import_command() -> int:
+    settings = load_settings()
+    run_interactive_import(settings)
+    return 0
+
+
 def print_copy_one(source: str, destination: str) -> int:
     result = copy_one_file(Path(source), Path(destination))
 
@@ -228,6 +244,7 @@ def show_config() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mac-photo-studio")
+    parser.add_argument("command", nargs="?")
     parser.add_argument("--version", action="store_true")
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--scan-cards", action="store_true")
@@ -245,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Mac Photo Studio starting")
 
     try:
+        if args.command == "import":
+            return run_interactive_import_command()
         if args.version:
             print(get_version())
             return 0
@@ -292,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Environment-aware foundation installed.")
         print()
         print("Useful commands:")
+        print("  mac-photo-studio import")
         print("  mac-photo-studio --health")
         print("  mac-photo-studio --scan-cards")
         print("  mac-photo-studio --scan-path <folder>")
