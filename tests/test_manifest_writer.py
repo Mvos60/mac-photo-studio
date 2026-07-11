@@ -8,6 +8,7 @@ from mps.services.manifest_writer import (
     file_sha256,
     read_manifest,
     write_manifest,
+    write_manifest_to_path,
 )
 
 
@@ -56,8 +57,18 @@ def test_add_file_entry_records_destination_hash_and_size(tmp_path):
     source.write_bytes(b"source bytes")
     destination.write_bytes(b"copied bytes")
 
-    manifest = create_manifest("Adriatic_2026", "01_Germany", "0.2.0-dev")
-    entry = add_file_entry(manifest, source, destination, action="copied", status="verified")
+    manifest = create_manifest(
+        "Adriatic_2026",
+        "01_Germany",
+        "0.2.0-dev",
+    )
+    entry = add_file_entry(
+        manifest,
+        source,
+        destination,
+        action="copied",
+        status="verified",
+    )
 
     assert manifest.file_count == 1
     assert manifest.total_bytes == len(b"copied bytes")
@@ -83,6 +94,25 @@ def test_write_manifest_creates_manifest_directory(tmp_path):
     assert path.parent.name == "manifest"
 
 
+def test_write_manifest_to_exact_path(tmp_path):
+    manifest = create_manifest(
+        "Adriatic_2026",
+        "01_Germany",
+        "0.2.0-dev",
+        session_id="session-exact",
+    )
+    requested_path = tmp_path / "import_manifest.json"
+
+    path = write_manifest_to_path(manifest, requested_path)
+
+    assert path == requested_path
+    assert requested_path.exists()
+
+    data = read_manifest(requested_path)
+
+    assert data["session_id"] == "session-exact"
+
+
 def test_written_manifest_contains_file_statistics(tmp_path):
     source = tmp_path / "card" / "DSC0001.JPG"
     destination = tmp_path / "library" / "DSC0001.JPG"
@@ -97,7 +127,13 @@ def test_written_manifest_contains_file_statistics(tmp_path):
         "0.2.0-dev",
         session_id="session-002",
     )
-    add_file_entry(manifest, source, destination, action="copied", status="verified")
+    add_file_entry(
+        manifest,
+        source,
+        destination,
+        action="copied",
+        status="verified",
+    )
     path = write_manifest(manifest, tmp_path)
 
     data = json.loads(path.read_text(encoding="utf-8"))

@@ -9,12 +9,18 @@ from mps.models.import_decision import ImportDecision
 from mps.models.import_progress import ImportProgress
 from mps.models.import_result import ImportResult
 from mps.models.provenance_certificate_index import ProvenanceCertificateIndex
+from mps.services.manifest_writer import (
+    add_file_entry,
+    create_manifest,
+    write_manifest_to_path,
+)
 from mps.services.provenance_certificate import create_certificate
 from mps.services.provenance_index_builder import index_entry_from_certificate
 from mps.services.provenance_index_paths import index_path
 from mps.services.provenance_index_writer import write_index
 from mps.services.provenance_writer import write_certificate_for_import
 from mps.services.safe_copy import CopyResult, copy_one_file
+from mps.version import get_version
 
 
 def _write_log_header(log_file: Path, decision: ImportDecision) -> None:
@@ -34,16 +40,30 @@ def _write_log_header(log_file: Path, decision: ImportDecision) -> None:
     )
 
 
-def _append_log_operation(log_file: Path, source: Path, destination: Path, success: bool, message: str) -> None:
+def _append_log_operation(
+    log_file: Path,
+    source: Path,
+    destination: Path,
+    success: bool,
+    message: str,
+) -> None:
     status = "OK" if success else "FAILED"
+
     with log_file.open("a", encoding="utf-8") as handle:
         handle.write(f"{status}: {source} -> {destination}\n")
+
         if message:
             handle.write(f"  {message}\n")
 
 
-def _append_log_summary(log_file: Path, copied: int, failed: int, skipped: int) -> None:
+def _append_log_summary(
+    log_file: Path,
+    copied: int,
+    failed: int,
+    skipped: int,
+) -> None:
     timestamp = datetime.now().isoformat(timespec="seconds")
+
     with log_file.open("a", encoding="utf-8") as handle:
         handle.write("\nSummary\n")
         handle.write("-------\n")
@@ -56,6 +76,36 @@ def _append_log_summary(log_file: Path, copied: int, failed: int, skipped: int) 
 
 def _new_session_id() -> str:
     return f"MPS-SESSION-{uuid4()}"
+
+
+def _write_manifest_for_copies(
+    *,
+    session_id: str,
+    manifest_path: Path,
+    project: str,
+    day_session: str,
+    copy_results: list[CopyResult],
+) -> None:
+    manifest = create_manifest(
+        project=project,
+        day_session=day_session,
+        mps_version=get_version(),
+        session_id=session_id,
+    )
+
+    for result in copy_results:
+        if not result.success or result.checksum is None:
+            continue
+
+        add_file_entry(
+            manifest,
+            source_path=result.source,
+            destination_path=result.destination,
+            action="copied",
+            status="verified",
+        )
+
+    write_manifest_to_path(manifest, manifest_path)
 
 
 def _write_provenance_for_copies(
@@ -107,15 +157,16 @@ def run_import(
     write_provenance: bool = False,
     camera_model: str = "Unknown camera",
     manifest_path: Path | None = None,
+    project: str = "",
+    day_session: str = "",
 ) -> ImportResult:
     """Run an import decision.
 
     Dry runs remain fully read-only: no folders, files, logs, certificates,
-    or indexes are created.
+    indexes, or manifests are created.
 
-    Real imports create the destination folder, copy files through Safe Copy,
-    optionally write a human-readable import log, and can optionally write
-    provenance certificates plus a certificate index for successfully copied files.
+    Real imports create the destination folder and copy files through Safe Copy.
+    They can optionally write an import log and provenance evidence.
     """
 
     if dry_run:
@@ -137,7 +188,10 @@ def run_import(
     total = len(decision.copy_operations)
     copy_results: list[CopyResult] = []
 
-    for index, operation in enumerate(decision.copy_operations, start=1):
+    for index, operation in enumerate(
+        decision.copy_operations,
+        start=1,
+    ):
         if progress_callback is not None:
             progress_callback(
                 ImportProgress(
@@ -171,16 +225,35 @@ def run_import(
     skipped = 0
 
     if write_provenance:
+        resolved_manifest_path = (
+            manifest_path
+            or decision.destination / "import_manifest.json"
+        )
+        session_id = _new_session_id()
+
+        _write_manifest_for_copies(
+            session_id=session_id,
+            manifest_path=resolved_manifest_path,
+            project=project,
+            day_session=day_session,
+            copy_results=copy_results,
+        )
+
         _write_provenance_for_copies(
             import_root=decision.destination,
-            session_id=_new_session_id(),
-            manifest_path=manifest_path or decision.destination / "import_manifest.json",
+            session_id=session_id,
+            manifest_path=resolved_manifest_path,
             camera_model=camera_model,
             copy_results=copy_results,
         )
 
     if log_path is not None:
-        _append_log_summary(log_path, copied, failed, skipped)
+        _append_log_summary(
+            log_path,
+            copied,
+            failed,
+            skipped,
+        )
 
     return ImportResult(
         copied=copied,

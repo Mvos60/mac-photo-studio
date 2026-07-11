@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from mps.models.import_decision import CopyOperation, ImportDecision
@@ -71,9 +72,19 @@ def test_import_engine_reports_progress(tmp_path):
     seen: list[tuple[int, int, str]] = []
 
     def collect(progress):
-        seen.append((progress.current, progress.total, progress.source.name))
+        seen.append(
+            (
+                progress.current,
+                progress.total,
+                progress.source.name,
+            )
+        )
 
-    result = run_import(decision, dry_run=False, progress_callback=collect)
+    result = run_import(
+        decision,
+        dry_run=False,
+        progress_callback=collect,
+    )
 
     assert result.success
     assert seen == [
@@ -86,7 +97,11 @@ def test_import_engine_writes_log(tmp_path):
     decision = _decision(tmp_path)
     log_path = tmp_path / "logs" / "import.log"
 
-    result = run_import(decision, dry_run=False, log_path=log_path)
+    result = run_import(
+        decision,
+        dry_run=False,
+        log_path=log_path,
+    )
 
     assert result.success
     assert result.log_path == log_path
@@ -102,7 +117,9 @@ def test_import_engine_writes_log(tmp_path):
     assert "Success: True" in text
 
 
-def test_import_engine_writes_provenance_certificates_and_index(tmp_path):
+def test_import_engine_writes_provenance_certificates_and_index(
+    tmp_path,
+):
     decision = _decision(tmp_path)
 
     result = run_import(
@@ -111,6 +128,8 @@ def test_import_engine_writes_provenance_certificates_and_index(tmp_path):
         write_provenance=True,
         camera_model="Sony A7 III",
         manifest_path=decision.destination / "import_manifest.json",
+        project="Adriatic",
+        day_session="03_Slovenia",
     )
 
     provenance_dir = decision.destination / "provenance"
@@ -134,33 +153,67 @@ def test_import_engine_writes_provenance_certificates_and_index(tmp_path):
     assert "source1.JPG" in index_text
 
 
-def test_import_engine_writes_provenance_certificates_and_index(tmp_path):
+def test_import_engine_writes_requested_manifest(tmp_path):
     decision = _decision(tmp_path)
+    manifest_path = decision.destination / "import_manifest.json"
 
     result = run_import(
         decision,
         dry_run=False,
         write_provenance=True,
         camera_model="Sony A7 III",
-        manifest_path=decision.destination / "import_manifest.json",
+        manifest_path=manifest_path,
+        project="Adriatic",
+        day_session="03_Slovenia",
     )
-
-    provenance_dir = decision.destination / "provenance"
-    index_file = provenance_dir / "certificate_index.json"
 
     assert result.success
-    assert provenance_dir.exists()
-    assert index_file.exists()
+    assert manifest_path.exists()
 
-    certificate_files = sorted(
-        path
-        for path in provenance_dir.glob("MPS-CERT-*.json")
+    manifest = json.loads(
+        manifest_path.read_text(encoding="utf-8")
     )
 
-    assert len(certificate_files) == 2
+    assert manifest["project"] == "Adriatic"
+    assert manifest["day_session"] == "03_Slovenia"
+    assert manifest["file_count"] == 2
+    assert manifest["files"][0]["status"] == "verified"
+    assert manifest["files"][1]["status"] == "verified"
 
-    index_text = index_file.read_text(encoding="utf-8")
 
-    assert "Sony A7 III" in index_text
-    assert "source1.ARW" in index_text
-    assert "source1.JPG" in index_text
+def test_manifest_and_certificates_share_session_id(tmp_path):
+    decision = _decision(tmp_path)
+    manifest_path = decision.destination / "import_manifest.json"
+
+    result = run_import(
+        decision,
+        dry_run=False,
+        write_provenance=True,
+        camera_model="Sony A7 III",
+        manifest_path=manifest_path,
+        project="Adriatic",
+        day_session="03_Slovenia",
+    )
+
+    assert result.success
+
+    manifest = json.loads(
+        manifest_path.read_text(encoding="utf-8")
+    )
+
+    certificate_files = sorted(
+        (
+            decision.destination / "provenance"
+        ).glob("MPS-CERT-*.json")
+    )
+
+    certificates = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in certificate_files
+    ]
+
+    assert len(certificates) == 2
+
+    for certificate in certificates:
+        assert certificate["session_id"] == manifest["session_id"]
+        assert certificate["manifest_path"] == str(manifest_path)

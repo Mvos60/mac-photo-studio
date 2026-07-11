@@ -63,14 +63,31 @@ def add_file_entry(
     return entry
 
 
-def write_manifest(manifest: ImportManifest, destination_root: str | Path) -> Path:
-    path = manifest_path(destination_root, manifest.session_id)
+def _write_manifest_json(
+    manifest: ImportManifest,
+    path: Path,
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return path
+
+
+def write_manifest(
+    manifest: ImportManifest,
+    destination_root: str | Path,
+) -> Path:
+    path = manifest_path(destination_root, manifest.session_id)
+    return _write_manifest_json(manifest, path)
+
+
+def write_manifest_to_path(
+    manifest: ImportManifest,
+    path: str | Path,
+) -> Path:
+    return _write_manifest_json(manifest, Path(path))
 
 
 def read_manifest(path: str | Path) -> dict:

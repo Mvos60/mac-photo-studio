@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from mps.config import Settings
@@ -19,7 +20,11 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_cli_plan_import_uses_year_first_layout(tmp_path, monkeypatch, capsys):
+def test_cli_plan_import_uses_year_first_layout(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
     raw = tmp_path / "raw"
     jpg = tmp_path / "jpg"
     raw.mkdir()
@@ -101,6 +106,7 @@ def test_cli_real_import_copies_files_and_writes_provenance(
     )
     provenance_dir = destination / "provenance"
     index_file = provenance_dir / "certificate_index.json"
+    manifest_file = destination / "import_manifest.json"
 
     output = capsys.readouterr().out
 
@@ -113,9 +119,18 @@ def test_cli_real_import_copies_files_and_writes_provenance(
     assert (destination / "DSC0001.JPG").read_bytes() == b"jpg-data"
     assert (destination / "mps_import.log").exists()
 
+    assert manifest_file.exists()
     assert provenance_dir.exists()
     assert index_file.exists()
     assert len(list(provenance_dir.glob("MPS-CERT-*.json"))) == 2
+
+    manifest = json.loads(
+        manifest_file.read_text(encoding="utf-8")
+    )
+
+    assert manifest["project"] == "Adriatic"
+    assert manifest["day_session"] == "03_Slovenia"
+    assert manifest["file_count"] == 2
 
     index_text = index_file.read_text(encoding="utf-8")
     assert "DSC0001.ARW" in index_text
