@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from mps.config import Settings
+from mps.models.import_decision import ImportDecision
 from mps.models.import_session_request import ImportSessionRequest
-from mps.services.import_planner import ImportPlan, create_import_plan
+from mps.services.import_planner import (
+    ImportPlan,
+    create_import_decision,
+    create_import_plan,
+)
 
 
 def create_plan_from_request(
@@ -19,3 +24,15 @@ def create_plan_from_request(
         jpeg_folder=request.jpeg_folder,
         settings=settings,
     )
+
+
+def create_decision_from_request(
+    request: ImportSessionRequest,
+    settings: Settings,
+) -> tuple[ImportPlan, ImportDecision]:
+    """Create the planner decision used by the import pipeline."""
+
+    plan = create_plan_from_request(request, settings)
+    decision = create_import_decision(plan)
+
+    return plan, decision

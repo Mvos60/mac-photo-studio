@@ -2,6 +2,7 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.main import main
+from mps.models.import_session_request import ImportSessionRequest
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -49,10 +50,20 @@ def test_cli_plan_import_uses_year_first_layout(tmp_path, monkeypatch, capsys):
     assert "Year:         2026" in output
     assert "Project:      Adriatic" in output
     assert "03_Slovenia" in output
-    assert str(tmp_path / "Photos_Master" / "2026" / "Adriatic" / "03_Slovenia") in output
+    assert str(
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "Adriatic"
+        / "03_Slovenia"
+    ) in output
 
 
-def test_cli_real_import_copies_files_and_writes_provenance(tmp_path, monkeypatch, capsys):
+def test_cli_real_import_copies_files_and_writes_provenance(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
     raw = tmp_path / "raw"
     jpg = tmp_path / "jpg"
     raw.mkdir()
@@ -81,7 +92,13 @@ def test_cli_real_import_copies_files_and_writes_provenance(tmp_path, monkeypatc
         ]
     )
 
-    destination = tmp_path / "Photos_Master" / "2026" / "Adriatic" / "03_Slovenia"
+    destination = (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "Adriatic"
+        / "03_Slovenia"
+    )
     provenance_dir = destination / "provenance"
     index_file = provenance_dir / "certificate_index.json"
 
@@ -105,7 +122,10 @@ def test_cli_real_import_copies_files_and_writes_provenance(tmp_path, monkeypatc
     assert "DSC0001.JPG" in index_text
 
 
-def test_cli_import_command_runs_interactive_import(tmp_path, monkeypatch):
+def test_cli_import_command_cancel_does_not_run_real_import(
+    tmp_path,
+    monkeypatch,
+):
     called = []
 
     monkeypatch.setattr(
@@ -114,20 +134,23 @@ def test_cli_import_command_runs_interactive_import(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "mps.main.run_interactive_import",
-        lambda settings: called.append(settings),
+        lambda settings: None,
+    )
+    monkeypatch.setattr(
+        "mps.main.run_real_import",
+        lambda *args: called.append(args),
     )
 
     exit_code = main(["import"])
 
     assert exit_code == 0
-    assert len(called) == 1
+    assert called == []
 
 
-def test_cli_import_command_accepts_wizard_session(tmp_path, monkeypatch):
-    from pathlib import Path
-
-    from mps.models.import_session_request import ImportSessionRequest
-
+def test_cli_import_command_hands_wizard_session_to_real_import(
+    tmp_path,
+    monkeypatch,
+):
     session = ImportSessionRequest(
         year=2026,
         project="Adriatic",
@@ -146,12 +169,20 @@ def test_cli_import_command_accepts_wizard_session(tmp_path, monkeypatch):
         "mps.main.run_interactive_import",
         lambda settings: session,
     )
+    monkeypatch.setattr(
+        "mps.main.run_real_import",
+        lambda *args: called.append(args) or 0,
+    )
 
     exit_code = main(["import"])
 
-    called.append(session)
-
     assert exit_code == 0
-    assert called[0].project == "Adriatic"
-    assert called[0].year == 2026
-    assert called[0].day == "03_Slovenia"
+    assert called == [
+        (
+            2026,
+            "Adriatic",
+            "03_Slovenia",
+            "/media/raw",
+            "/media/jpg",
+        )
+    ]

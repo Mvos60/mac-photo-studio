@@ -217,8 +217,18 @@ def run_real_import(year: int, project: str, day: str, raw_folder: str, jpeg_fol
 
 def run_interactive_import_command() -> int:
     settings = load_settings()
-    run_interactive_import(settings)
-    return 0
+    session = run_interactive_import(settings)
+
+    if session is None:
+        return 0
+
+    return run_real_import(
+        session.year,
+        session.project,
+        session.day,
+        str(session.raw_folder),
+        str(session.jpeg_folder),
+    )
 
 
 def print_copy_one(source: str, destination: str) -> int:

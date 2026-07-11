@@ -48,6 +48,20 @@ def prepare(monkeypatch, raw: Path, jpeg: Path):
     )
 
 
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        {
+            "paths": {
+                "photos_root": str(tmp_path / "Photos_Master"),
+            },
+            "media": {
+                "raw_extensions": ["ARW"],
+                "jpeg_extensions": ["JPG", "JPEG"],
+            },
+        }
+    )
+
+
 def test_run_interactive_import_accept(monkeypatch, capsys, tmp_path: Path):
     raw = tmp_path / "raw"
     jpeg = tmp_path / "jpeg"
@@ -62,19 +76,7 @@ def test_run_interactive_import_accept(monkeypatch, capsys, tmp_path: Path):
 
     monkeypatch.setattr("builtins.input", lambda _: "")
 
-    settings = Settings(
-        {
-            "paths": {
-                "photos_root": str(tmp_path / "Photos_Master"),
-            },
-            "media": {
-                "raw_extensions": ["ARW"],
-                "jpeg_extensions": ["JPG", "JPEG"],
-            },
-        }
-    )
-
-    session = run_interactive_import(settings)
+    session = run_interactive_import(settings(tmp_path))
     output = capsys.readouterr().out
 
     assert session is not None
@@ -96,9 +98,36 @@ def test_run_interactive_import_cancel(monkeypatch, capsys, tmp_path: Path):
 
     monkeypatch.setattr("builtins.input", lambda _: "n")
 
-    session = run_interactive_import(Settings({}))
+    session = run_interactive_import(settings(tmp_path))
     output = capsys.readouterr().out
 
     assert session is None
     assert "Import cancelled." in output
     assert "Import Plan Preview" not in output
+
+
+def test_run_interactive_import_reject_plan(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+):
+    raw = tmp_path / "raw"
+    jpeg = tmp_path / "jpeg"
+
+    raw.mkdir()
+    jpeg.mkdir()
+
+    (raw / "DSC0001.ARW").write_bytes(b"raw")
+    (jpeg / "DSC0001.JPG").write_bytes(b"jpeg")
+
+    prepare(monkeypatch, raw, jpeg)
+
+    answers = iter(["", "n"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    session = run_interactive_import(settings(tmp_path))
+    output = capsys.readouterr().out
+
+    assert session is None
+    assert "Import Plan Preview" in output
+    assert "Import plan rejected." in output

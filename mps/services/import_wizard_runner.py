@@ -64,4 +64,10 @@ def run_interactive_import(settings: Settings) -> ImportSessionRequest | None:
     print(build_import_plan_preview(plan))
     print()
 
+    answer = input("Accept this import plan? [Y/n]: ").strip().lower()
+
+    if answer in {"n", "no"}:
+        print("Import plan rejected.")
+        return None
+
     return request
