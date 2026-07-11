@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from mps.models.import_session_request import ImportSessionRequest
 from mps.models.post_import_verification import PostImportVerification
+from mps.models.source_card_reconciliation import (
+    SourceCardReconciliation,
+)
 from mps.services.import_card_report import build_card_report
 from mps.services.import_card_selector import ImportCardSelection
 from mps.services.import_planner import ImportPlan
@@ -101,5 +104,44 @@ def build_post_import_verification_summary(
 
         for error in result.provenance_errors:
             lines.append(f"- {error}")
+
+    return "\n".join(lines)
+
+
+def build_source_card_reconciliation_summary(
+    result: SourceCardReconciliation,
+) -> str:
+    lines = [
+        "Source Card Reconciliation",
+        "==========================",
+        "",
+        f"Sources expected  : {result.expected_sources}",
+        f"Sources reconciled: {result.reconciled_sources}",
+        f"Card status       : {result.card_status}",
+    ]
+
+    if result.missing_from_manifest:
+        lines.extend(["", "Missing from manifest"])
+
+        for path in result.missing_from_manifest:
+            lines.append(f"- {path}")
+
+    if result.unexpected_manifest_sources:
+        lines.extend(["", "Unexpected manifest sources"])
+
+        for path in result.unexpected_manifest_sources:
+            lines.append(f"- {path}")
+
+    if result.unverified_destinations:
+        lines.extend(["", "Unverified destinations"])
+
+        for path in result.unverified_destinations:
+            lines.append(f"- {path}")
+
+    if result.provenance_failures:
+        lines.extend(["", "Provenance failures"])
+
+        for path in result.provenance_failures:
+            lines.append(f"- {path}")
 
     return "\n".join(lines)

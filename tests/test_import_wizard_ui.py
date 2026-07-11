@@ -4,12 +4,16 @@ from mps.config import Settings
 from mps.models.card import CardScanResult
 from mps.models.import_session_request import ImportSessionRequest
 from mps.models.post_import_verification import PostImportVerification
+from mps.models.source_card_reconciliation import (
+    SourceCardReconciliation,
+)
 from mps.services.import_card_selector import ImportCardSelection
 from mps.services.import_planner import create_import_plan
 from mps.services.import_wizard_ui import (
     build_import_plan_preview,
     build_import_summary,
     build_post_import_verification_summary,
+    build_source_card_reconciliation_summary,
     build_wizard_intro,
 )
 
@@ -155,3 +159,48 @@ def test_build_post_import_verification_summary_blocked():
     assert "Incomplete manifest entries: 1" in summary
     assert "Provenance errors" in summary
     assert "- Session ID mismatch" in summary
+
+
+def test_build_source_card_reconciliation_summary_safe():
+    result = SourceCardReconciliation(
+        expected_sources=42,
+        reconciled_sources=42,
+    )
+
+    summary = build_source_card_reconciliation_summary(result)
+
+    assert "Source Card Reconciliation" in summary
+    assert "Sources expected  : 42" in summary
+    assert "Sources reconciled: 42" in summary
+    assert "Card status       : SOURCE CARDS RECONCILED" in summary
+
+
+def test_build_source_card_reconciliation_summary_blocked():
+    result = SourceCardReconciliation(
+        expected_sources=4,
+        reconciled_sources=0,
+        missing_from_manifest=[
+            Path("/media/raw/DSC0001.ARW"),
+        ],
+        unexpected_manifest_sources=[
+            Path("/media/raw/DSC9999.ARW"),
+        ],
+        unverified_destinations=[
+            Path("/photos/DSC0002.JPG"),
+        ],
+        provenance_failures=[
+            Path("/photos/DSC0003.ARW"),
+        ],
+    )
+
+    summary = build_source_card_reconciliation_summary(result)
+
+    assert "SOURCE CARDS NOT RECONCILED" in summary
+    assert "Missing from manifest" in summary
+    assert "- /media/raw/DSC0001.ARW" in summary
+    assert "Unexpected manifest sources" in summary
+    assert "- /media/raw/DSC9999.ARW" in summary
+    assert "Unverified destinations" in summary
+    assert "- /photos/DSC0002.JPG" in summary
+    assert "Provenance failures" in summary
+    assert "- /photos/DSC0003.ARW" in summary

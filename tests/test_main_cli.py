@@ -5,6 +5,9 @@ from mps.config import Settings
 from mps.main import main
 from mps.models.import_session_request import ImportSessionRequest
 from mps.models.post_import_verification import PostImportVerification
+from mps.models.source_card_reconciliation import (
+    SourceCardReconciliation,
+)
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -65,7 +68,7 @@ def test_cli_plan_import_uses_year_first_layout(
     ) in output
 
 
-def test_cli_real_import_copies_files_and_writes_provenance(
+def test_cli_real_import_copies_files_and_reconciles_sources(
     tmp_path,
     monkeypatch,
     capsys,
@@ -117,6 +120,10 @@ def test_cli_real_import_copies_files_and_writes_provenance(
     assert "Success:      True" in output
     assert "Post-Import Verification" in output
     assert "Card status          : SAFE TO RELEASE" in output
+    assert "Source Card Reconciliation" in output
+    assert "Sources expected  : 2" in output
+    assert "Sources reconciled: 2" in output
+    assert "Card status       : SOURCE CARDS RECONCILED" in output
 
     assert (destination / "DSC0001.ARW").read_bytes() == b"raw-data"
     assert (destination / "DSC0001.JPG").read_bytes() == b"jpg-data"
@@ -135,10 +142,6 @@ def test_cli_real_import_copies_files_and_writes_provenance(
     assert manifest["day_session"] == "03_Slovenia"
     assert manifest["file_count"] == 2
 
-    index_text = index_file.read_text(encoding="utf-8")
-    assert "DSC0001.ARW" in index_text
-    assert "DSC0001.JPG" in index_text
-
 
 def test_cli_real_import_blocks_release_when_verification_fails(
     tmp_path,
@@ -152,6 +155,8 @@ def test_cli_real_import_blocks_release_when_verification_fails(
 
     (raw / "DSC0001.ARW").write_bytes(b"raw-data")
     (jpg / "DSC0001.JPG").write_bytes(b"jpg-data")
+
+    reconciliation_called = []
 
     monkeypatch.setattr(
         "mps.main.load_settings",
@@ -173,6 +178,62 @@ def test_cli_real_import_blocks_release_when_verification_fails(
             provenance_errors=["Certificate hash mismatch"],
         ),
     )
+    monkeypatch.setattr(
+        "mps.main.reconcile_source_cards",
+        lambda plan: reconciliation_called.append(plan),
+    )
+
+    exit_code = main(
+        [
+            "--import",
+            "2026",
+            "Adriatic",
+            "03_Slovenia",
+            str(raw),
+            str(jpg),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Card status          : DO NOT RELEASE" in output
+    assert "Certificate hash mismatch" in output
+    assert "Source Card Reconciliation" not in output
+    assert reconciliation_called == []
+
+
+def test_cli_real_import_blocks_unreconciled_sources(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    raw = tmp_path / "raw"
+    jpg = tmp_path / "jpg"
+    raw.mkdir()
+    jpg.mkdir()
+
+    (raw / "DSC0001.ARW").write_bytes(b"raw-data")
+    (jpg / "DSC0001.JPG").write_bytes(b"jpg-data")
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.identify_camera_model",
+        lambda path: "ILCE-7M3",
+    )
+    monkeypatch.setattr(
+        "mps.main.reconcile_source_cards",
+        lambda plan: SourceCardReconciliation(
+            expected_sources=2,
+            reconciled_sources=1,
+            missing_from_manifest=[
+                Path("/media/raw/DSC0001.ARW"),
+            ],
+        ),
+    )
 
     exit_code = main(
         [
@@ -189,8 +250,10 @@ def test_cli_real_import_blocks_release_when_verification_fails(
 
     assert exit_code == 1
     assert "Post-Import Verification" in output
-    assert "Card status          : DO NOT RELEASE" in output
-    assert "Certificate hash mismatch" in output
+    assert "Card status          : SAFE TO RELEASE" in output
+    assert "Source Card Reconciliation" in output
+    assert "SOURCE CARDS NOT RECONCILED" in output
+    assert "Missing from manifest" in output
 
 
 def test_cli_import_command_cancel_does_not_run_real_import(

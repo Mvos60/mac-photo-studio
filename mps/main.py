@@ -19,10 +19,12 @@ from mps.services.import_session_builder import build_import_session
 from mps.services.import_wizard_runner import run_interactive_import
 from mps.services.import_wizard_ui import (
     build_post_import_verification_summary,
+    build_source_card_reconciliation_summary,
 )
 from mps.services.pairing import pair_paths
 from mps.services.post_import_verifier import verify_import_root
 from mps.services.safe_copy import copy_one_file
+from mps.services.source_card_reconciler import reconcile_source_cards
 from mps.version import get_version
 
 
@@ -263,7 +265,15 @@ def run_real_import(
     print(build_post_import_verification_summary(verification))
     print()
 
-    return 0 if verification.safe_to_release else 1
+    if not verification.safe_to_release:
+        return 1
+
+    reconciliation = reconcile_source_cards(plan)
+
+    print(build_source_card_reconciliation_summary(reconciliation))
+    print()
+
+    return 0 if reconciliation.reconciled else 1
 
 
 def run_interactive_import_command() -> int:
