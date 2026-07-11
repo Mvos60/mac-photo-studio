@@ -8,24 +8,44 @@ from uuid import uuid4
 from mps.models.import_decision import ImportDecision
 from mps.models.import_progress import ImportProgress
 from mps.models.import_result import ImportResult
-from mps.models.provenance_certificate_index import ProvenanceCertificateIndex
 from mps.services.manifest_writer import (
     add_file_entry,
-    create_manifest,
+    load_or_create_manifest,
     write_manifest_to_path,
 )
 from mps.services.provenance_certificate import create_certificate
 from mps.services.provenance_index_builder import index_entry_from_certificate
 from mps.services.provenance_index_paths import index_path
-from mps.services.provenance_index_writer import write_index
+from mps.services.provenance_index_writer import (
+    load_or_create_index,
+    write_index,
+)
 from mps.services.provenance_writer import write_certificate_for_import
 from mps.services.safe_copy import CopyResult, copy_one_file
 from mps.version import get_version
 
 
-def _write_log_header(log_file: Path, decision: ImportDecision) -> None:
+def _write_log_header(
+    log_file: Path,
+    decision: ImportDecision,
+) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat(timespec="seconds")
+
+    if log_file.exists():
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(
+                "\nImport Batch\n"
+                "============\n\n"
+                f"Started: {timestamp}\n"
+                f"Destination: {decision.destination}\n"
+                f"Planned files: {decision.total_files}\n"
+                f"Estimated size bytes: "
+                f"{decision.estimated_size_bytes}\n\n"
+                "Operations\n"
+                "----------\n"
+            )
+        return
 
     log_file.write_text(
         "Mac Photo Studio Import Log\n"
@@ -50,7 +70,9 @@ def _append_log_operation(
     status = "OK" if success else "FAILED"
 
     with log_file.open("a", encoding="utf-8") as handle:
-        handle.write(f"{status}: {source} -> {destination}\n")
+        handle.write(
+            f"{status}: {source} -> {destination}\n"
+        )
 
         if message:
             handle.write(f"  {message}\n")
@@ -86,7 +108,8 @@ def _write_manifest_for_copies(
     day_session: str,
     copy_results: list[CopyResult],
 ) -> None:
-    manifest = create_manifest(
+    manifest = load_or_create_manifest(
+        manifest_path,
         project=project,
         day_session=day_session,
         mps_version=get_version(),
@@ -105,7 +128,10 @@ def _write_manifest_for_copies(
             status="verified",
         )
 
-    write_manifest_to_path(manifest, manifest_path)
+    write_manifest_to_path(
+        manifest,
+        manifest_path,
+    )
 
 
 def _write_provenance_for_copies(
@@ -116,7 +142,10 @@ def _write_provenance_for_copies(
     camera_model: str,
     copy_results: list[CopyResult],
 ) -> None:
-    entries = []
+    certificate_index_path = index_path(import_root)
+    certificate_index = load_or_create_index(
+        certificate_index_path
+    )
 
     for result in copy_results:
         if not result.success or result.checksum is None:
@@ -136,7 +165,7 @@ def _write_provenance_for_copies(
             import_root,
         )
 
-        entries.append(
+        certificate_index.entries.append(
             index_entry_from_certificate(
                 certificate,
                 certificate_path,
@@ -144,8 +173,8 @@ def _write_provenance_for_copies(
         )
 
     write_index(
-        ProvenanceCertificateIndex(entries=entries),
-        index_path(import_root),
+        certificate_index,
+        certificate_index_path,
     )
 
 
@@ -159,14 +188,14 @@ def run_import(
     manifest_path: Path | None = None,
     project: str = "",
     day_session: str = "",
+    session_id: str | None = None,
 ) -> ImportResult:
     """Run an import decision.
 
-    Dry runs remain fully read-only: no folders, files, logs, certificates,
-    indexes, or manifests are created.
+    Dry runs remain fully read-only.
 
-    Real imports create the destination folder and copy files through Safe Copy.
-    They can optionally write an import log and provenance evidence.
+    A supplied session ID allows multiple media batches to contribute to one
+    persistent import manifest and provenance index.
     """
 
     if dry_run:
@@ -178,10 +207,16 @@ def run_import(
             log_path=None,
         )
 
-    decision.destination.mkdir(parents=True, exist_ok=True)
+    decision.destination.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     if log_path is not None:
-        _write_log_header(log_path, decision)
+        _write_log_header(
+            log_path,
+            decision,
+        )
 
     copied = 0
     failed = 0
@@ -229,10 +264,13 @@ def run_import(
             manifest_path
             or decision.destination / "import_manifest.json"
         )
-        session_id = _new_session_id()
+        resolved_session_id = (
+            session_id
+            or _new_session_id()
+        )
 
         _write_manifest_for_copies(
-            session_id=session_id,
+            session_id=resolved_session_id,
             manifest_path=resolved_manifest_path,
             project=project,
             day_session=day_session,
@@ -241,7 +279,7 @@ def run_import(
 
         _write_provenance_for_copies(
             import_root=decision.destination,
-            session_id=session_id,
+            session_id=resolved_session_id,
             manifest_path=resolved_manifest_path,
             camera_model=camera_model,
             copy_results=copy_results,

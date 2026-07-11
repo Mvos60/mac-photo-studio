@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from mps.models.card_release_decision import CardReleaseDecision
 from mps.models.import_session_request import ImportSessionRequest
 from mps.models.post_import_verification import PostImportVerification
 from mps.models.source_card_reconciliation import (
@@ -145,3 +146,26 @@ def build_source_card_reconciliation_summary(
             lines.append(f"- {path}")
 
     return "\n".join(lines)
+
+
+def build_card_release_decision_summary(
+    decision: CardReleaseDecision,
+) -> str:
+    verification_status = (
+        "PASSED"
+        if decision.verification.safe_to_release
+        else "FAILED"
+    )
+    reconciliation_status = (
+        "PASSED"
+        if decision.reconciliation.reconciled
+        else "FAILED"
+    )
+
+    return (
+        "Final Card Release Decision\n"
+        "===========================\n\n"
+        f"Post-import verification : {verification_status}\n"
+        f"Source reconciliation    : {reconciliation_status}\n\n"
+        f"FINAL STATUS             : {decision.status}"
+    )

@@ -172,3 +172,92 @@ def test_manifest_to_dict_is_json_serializable():
     encoded = json.dumps(manifest.to_dict())
 
     assert "session-004" in encoded
+
+
+def test_load_manifest_restores_existing_files(tmp_path):
+    from mps.services.manifest_writer import load_manifest
+
+    destination = tmp_path / "DSC0001.ARW"
+    destination.write_bytes(b"raw-data")
+
+    manifest = create_manifest(
+        project="Adriatic",
+        day_session="03_Slovenia",
+        mps_version="0.2.0-dev",
+        session_id="MPS-SESSION-1",
+    )
+
+    add_file_entry(
+        manifest,
+        source_path="/card/DSC0001.ARW",
+        destination_path=destination,
+        action="copied",
+        status="verified",
+    )
+
+    path = tmp_path / "import_manifest.json"
+    write_manifest_to_path(manifest, path)
+
+    loaded = load_manifest(path)
+
+    assert loaded.session_id == "MPS-SESSION-1"
+    assert loaded.project == "Adriatic"
+    assert loaded.day_session == "03_Slovenia"
+    assert len(loaded.files) == 1
+    assert loaded.files[0].source_path == "/card/DSC0001.ARW"
+
+
+def test_load_or_create_manifest_reuses_same_session(tmp_path):
+    from mps.services.manifest_writer import load_or_create_manifest
+
+    path = tmp_path / "import_manifest.json"
+
+    first = load_or_create_manifest(
+        path,
+        project="Adriatic",
+        day_session="03_Slovenia",
+        mps_version="0.2.0-dev",
+        session_id="MPS-SESSION-1",
+    )
+
+    write_manifest_to_path(first, path)
+
+    second = load_or_create_manifest(
+        path,
+        project="Adriatic",
+        day_session="03_Slovenia",
+        mps_version="0.2.0-dev",
+        session_id="MPS-SESSION-1",
+    )
+
+    assert second.session_id == first.session_id
+    assert second.created_at == first.created_at
+
+
+def test_load_or_create_manifest_rejects_different_session(tmp_path):
+    import pytest
+
+    from mps.services.manifest_writer import load_or_create_manifest
+
+    path = tmp_path / "import_manifest.json"
+
+    manifest = create_manifest(
+        project="Adriatic",
+        day_session="03_Slovenia",
+        mps_version="0.2.0-dev",
+        session_id="MPS-SESSION-1",
+    )
+
+    write_manifest_to_path(manifest, path)
+
+    with pytest.raises(
+        ValueError,
+        match="different import session",
+    ):
+        load_or_create_manifest(
+            path,
+            project="Adriatic",
+            day_session="03_Slovenia",
+            mps_version="0.2.0-dev",
+            session_id="MPS-SESSION-2",
+        )

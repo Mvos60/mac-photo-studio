@@ -92,3 +92,57 @@ def write_manifest_to_path(
 
 def read_manifest(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def load_manifest(path: str | Path) -> ImportManifest:
+    data = read_manifest(path)
+
+    manifest = ImportManifest(
+        session_id=data["session_id"],
+        created_at=data["created_at"],
+        project=data["project"],
+        day_session=data["day_session"],
+        mps_version=data["mps_version"],
+    )
+
+    for item in data.get("files", []):
+        manifest.files.append(
+            ManifestFileEntry(
+                source_path=item["source_path"],
+                destination_path=item["destination_path"],
+                sha256=item["sha256"],
+                action=item["action"],
+                status=item["status"],
+                bytes=item["bytes"],
+            )
+        )
+
+    return manifest
+
+
+def load_or_create_manifest(
+    path: str | Path,
+    *,
+    project: str,
+    day_session: str,
+    mps_version: str,
+    session_id: str,
+) -> ImportManifest:
+    manifest_file = Path(path)
+
+    if manifest_file.exists():
+        manifest = load_manifest(manifest_file)
+
+        if manifest.session_id != session_id:
+            raise ValueError(
+                "Existing manifest belongs to a different import session"
+            )
+
+        return manifest
+
+    return create_manifest(
+        project=project,
+        day_session=day_session,
+        mps_version=mps_version,
+        session_id=session_id,
+    )

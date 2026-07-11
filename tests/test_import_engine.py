@@ -217,3 +217,180 @@ def test_manifest_and_certificates_share_session_id(tmp_path):
     for certificate in certificates:
         assert certificate["session_id"] == manifest["session_id"]
         assert certificate["manifest_path"] == str(manifest_path)
+
+
+def test_import_engine_accumulates_batches_in_same_session(tmp_path):
+    import json
+
+    from mps.models.import_decision import (
+        CopyOperation,
+        ImportDecision,
+    )
+
+    destination = tmp_path / "Photos"
+    manifest_path = destination / "import_manifest.json"
+
+    raw_source = tmp_path / "raw" / "DSC0001.ARW"
+    raw_source.parent.mkdir()
+    raw_source.write_bytes(b"raw-photo-data")
+
+    raw_decision = ImportDecision(
+        destination=destination,
+        total_files=1,
+        estimated_size_bytes=raw_source.stat().st_size,
+        copy_operations=[
+            CopyOperation(
+                source=raw_source,
+                destination=destination / raw_source.name,
+            )
+        ],
+        warnings=[],
+    )
+
+    jpeg_source = tmp_path / "jpeg" / "DSC0001.JPG"
+    jpeg_source.parent.mkdir()
+    jpeg_source.write_bytes(b"jpeg-photo-data")
+
+    jpeg_decision = ImportDecision(
+        destination=destination,
+        total_files=1,
+        estimated_size_bytes=jpeg_source.stat().st_size,
+        copy_operations=[
+            CopyOperation(
+                source=jpeg_source,
+                destination=destination / jpeg_source.name,
+            )
+        ],
+        warnings=[],
+    )
+
+    session_id = "MPS-SESSION-SEQUENTIAL-1"
+
+    first = run_import(
+        raw_decision,
+        dry_run=False,
+        write_provenance=True,
+        camera_model="Sony A7 III",
+        manifest_path=manifest_path,
+        project="Adriatic",
+        day_session="03_Slovenia",
+        session_id=session_id,
+    )
+
+    second = run_import(
+        jpeg_decision,
+        dry_run=False,
+        write_provenance=True,
+        camera_model="Sony A7 III",
+        manifest_path=manifest_path,
+        project="Adriatic",
+        day_session="03_Slovenia",
+        session_id=session_id,
+    )
+
+    assert first.success
+    assert second.success
+
+    manifest = json.loads(
+        manifest_path.read_text(encoding="utf-8")
+    )
+
+    assert manifest["session_id"] == session_id
+    assert manifest["file_count"] == 2
+    assert {
+        item["destination_path"]
+        for item in manifest["files"]
+    } == {
+        str(destination / "DSC0001.ARW"),
+        str(destination / "DSC0001.JPG"),
+    }
+
+    index_path = (
+        destination
+        / "provenance"
+        / "certificate_index.json"
+    )
+
+    certificate_index = json.loads(
+        index_path.read_text(encoding="utf-8")
+    )
+
+    assert len(certificate_index["entries"]) == 2
+    assert {
+        item["session_id"]
+        for item in certificate_index["entries"]
+    } == {
+        session_id,
+    }
+
+    certificate_files = list(
+        (destination / "provenance").glob(
+            "MPS-CERT-*.json"
+        )
+    )
+
+    assert len(certificate_files) == 2
+
+
+def test_import_engine_appends_sequential_batches_to_log(tmp_path):
+    from mps.models.import_decision import (
+        CopyOperation,
+        ImportDecision,
+    )
+
+    destination = tmp_path / "Photos"
+    log_path = destination / "mps_import.log"
+
+    first_source = tmp_path / "raw" / "DSC0001.ARW"
+    first_source.parent.mkdir()
+    first_source.write_bytes(b"raw-photo-data")
+
+    second_source = tmp_path / "jpeg" / "DSC0001.JPG"
+    second_source.parent.mkdir()
+    second_source.write_bytes(b"jpeg-photo-data")
+
+    first_decision = ImportDecision(
+        destination=destination,
+        total_files=1,
+        estimated_size_bytes=first_source.stat().st_size,
+        copy_operations=[
+            CopyOperation(
+                source=first_source,
+                destination=destination / first_source.name,
+            )
+        ],
+        warnings=[],
+    )
+
+    second_decision = ImportDecision(
+        destination=destination,
+        total_files=1,
+        estimated_size_bytes=second_source.stat().st_size,
+        copy_operations=[
+            CopyOperation(
+                source=second_source,
+                destination=destination / second_source.name,
+            )
+        ],
+        warnings=[],
+    )
+
+    run_import(
+        first_decision,
+        dry_run=False,
+        log_path=log_path,
+    )
+
+    run_import(
+        second_decision,
+        dry_run=False,
+        log_path=log_path,
+    )
+
+    log = log_path.read_text(encoding="utf-8")
+
+    assert "DSC0001.ARW" in log
+    assert "DSC0001.JPG" in log
+    assert log.count("Mac Photo Studio Import Log") == 1
+    assert log.count("Import Batch") == 1
+    assert log.count("Summary") == 2
