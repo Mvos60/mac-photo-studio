@@ -256,7 +256,7 @@ def test_cli_real_import_blocks_unreconciled_sources(
     assert "Missing from manifest" in output
 
 
-def test_cli_import_command_cancel_does_not_run_real_import(
+def test_cli_import_command_cancel_does_not_start_media_session(
     tmp_path,
     monkeypatch,
 ):
@@ -267,12 +267,26 @@ def test_cli_import_command_cancel_does_not_run_real_import(
         lambda: _settings(tmp_path),
     )
     monkeypatch.setattr(
-        "mps.main.run_interactive_import",
-        lambda settings: None,
+        "mps.main.prompt_year",
+        lambda default: 2026,
     )
     monkeypatch.setattr(
-        "mps.main.run_real_import",
-        lambda *args: called.append(args),
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: called.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "n",
     )
 
     exit_code = main(["import"])
@@ -281,16 +295,14 @@ def test_cli_import_command_cancel_does_not_run_real_import(
     assert called == []
 
 
-def test_cli_import_command_hands_wizard_session_to_real_import(
+def test_cli_import_command_runs_media_session(
     tmp_path,
     monkeypatch,
+    capsys,
 ):
-    session = ImportSessionRequest(
-        year=2026,
-        project="Adriatic",
-        day="03_Slovenia",
-        raw_folder=Path("/media/raw"),
-        jpeg_folder=Path("/media/jpg"),
+    from mps.models.import_media_session import ImportMediaSession
+    from mps.models.import_media_wizard_result import (
+        ImportMediaWizardResult,
     )
 
     called = []
@@ -300,23 +312,83 @@ def test_cli_import_command_hands_wizard_session_to_real_import(
         lambda: _settings(tmp_path),
     )
     monkeypatch.setattr(
-        "mps.main.run_interactive_import",
-        lambda settings: session,
+        "mps.main.prompt_year",
+        lambda default: 2026,
     )
     monkeypatch.setattr(
-        "mps.main.run_real_import",
-        lambda *args: called.append(args) or 0,
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+
+    def run_session(settings, **kwargs):
+        from mps.models.import_media_session_reconciliation import (
+            ImportMediaSessionReconciliation,
+        )
+        from mps.models.post_import_verification import (
+            PostImportVerification,
+        )
+        from mps.models.source_card_reconciliation import (
+            SourceCardReconciliation,
+        )
+
+        called.append(kwargs)
+
+        reconciliation = ImportMediaSessionReconciliation(
+            expected_session_id="MPS-SESSION-TEST",
+            manifest_session_id="MPS-SESSION-TEST",
+            source_reconciliation=SourceCardReconciliation(
+                expected_sources=4,
+                reconciled_sources=4,
+            ),
+            verification=PostImportVerification(
+                import_root=tmp_path / "Photos_Master",
+                manifest_path=(
+                    tmp_path
+                    / "Photos_Master"
+                    / "import_manifest.json"
+                ),
+                expected_files=4,
+                verified_files=4,
+                expected_certificates=4,
+                verified_certificates=4,
+            ),
+        )
+
+        return ImportMediaWizardResult(
+            session=ImportMediaSession(),
+            session_id="MPS-SESSION-TEST",
+            batches_processed=2,
+            copied=4,
+            failed=0,
+            completed=True,
+            reconciliation=reconciliation,
+        )
+
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        run_session,
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
     )
 
     exit_code = main(["import"])
+    output = capsys.readouterr().out
 
     assert exit_code == 0
     assert called == [
-        (
-            2026,
-            "Adriatic",
-            "03_Slovenia",
-            "/media/raw",
-            "/media/jpg",
-        )
+        {
+            "year": 2026,
+            "project": "Adriatic",
+            "day": "03_Slovenia",
+        }
     ]
+    assert "Import Session Summary" in output
+    assert "Batches processed : 2" in output
+    assert "Files copied      : 4" in output
+    assert "Success           : True" in output

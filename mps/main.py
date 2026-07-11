@@ -15,8 +15,15 @@ from mps.services.cli_output import print_card_summary, print_decision_preview
 from mps.services.health import run_health_checks
 from mps.services.import_engine import run_import
 from mps.services.import_planner import create_import_decision, create_import_plan
+from mps.services.import_media_wizard_runner import (
+    run_import_media_session,
+)
+from mps.services.import_prompts import (
+    prompt_day,
+    prompt_project,
+    prompt_year,
+)
 from mps.services.import_session_builder import build_import_session
-from mps.services.import_wizard_runner import run_interactive_import
 from mps.services.import_wizard_ui import (
     build_post_import_verification_summary,
     build_source_card_reconciliation_summary,
@@ -277,19 +284,53 @@ def run_real_import(
 
 
 def run_interactive_import_command() -> int:
-    settings = load_settings()
-    session = run_interactive_import(settings)
+    from datetime import datetime
 
-    if session is None:
+    settings = load_settings()
+
+    print("Mac Photo Studio Import Wizard")
+    print("==============================")
+    print()
+
+    year = prompt_year(datetime.now().year)
+    project = prompt_project()
+    day = prompt_day()
+
+    print()
+    print("Import Session")
+    print("==============")
+    print()
+    print(f"Year        : {year}")
+    print(f"Project     : {project}")
+    print(f"Day/session : {day}")
+    print()
+
+    answer = input(
+        "Start this import session? [Y/n]: "
+    ).strip().lower()
+
+    if answer in {"n", "no"}:
+        print("Import cancelled.")
         return 0
 
-    return run_real_import(
-        session.year,
-        session.project,
-        session.day,
-        str(session.raw_folder),
-        str(session.jpeg_folder),
+    result = run_import_media_session(
+        settings,
+        year=year,
+        project=project,
+        day=day,
     )
+
+    print()
+    print("Import Session Summary")
+    print("======================")
+    print()
+    print(f"Batches processed : {result.batches_processed}")
+    print(f"Files copied      : {result.copied}")
+    print(f"Files failed      : {result.failed}")
+    print(f"Completed         : {result.completed}")
+    print(f"Success           : {result.success}")
+
+    return 0 if result.success else 1
 
 
 def print_copy_one(source: str, destination: str) -> int:

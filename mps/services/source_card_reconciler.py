@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from mps.models.source_card_reconciliation import (
     SourceCardReconciliation,
@@ -87,12 +87,12 @@ def _unverified_destinations(
 
 
 def _provenance_failures(
-    plan: ImportPlan,
+    import_root: Path,
     expected_sources: set[Path],
     manifest: dict[str, Any],
 ) -> list[Path]:
     entries = _manifest_by_source(manifest)
-    certificate_index_path = index_path(plan.destination)
+    certificate_index_path = index_path(import_root)
 
     if not certificate_index_path.exists():
         return sorted(
@@ -163,45 +163,56 @@ def _provenance_failures(
     return sorted(failures)
 
 
-def reconcile_source_cards(
-    plan: ImportPlan,
+def reconcile_sources(
+    expected_sources: Iterable[Path],
+    import_root: str | Path,
 ) -> SourceCardReconciliation:
-    manifest_path = plan.destination / "import_manifest.json"
+    root = Path(import_root)
+    manifest_path = root / "import_manifest.json"
     manifest = read_manifest(manifest_path)
 
-    expected_sources = _planned_sources(plan)
+    expected = set(expected_sources)
     manifest_sources = _manifest_sources(manifest)
 
     missing_from_manifest = sorted(
-        expected_sources - manifest_sources
+        expected - manifest_sources
     )
     unexpected_manifest_sources = sorted(
-        manifest_sources - expected_sources
+        manifest_sources - expected
     )
     unverified_destinations = _unverified_destinations(
-        expected_sources,
+        expected,
         manifest,
     )
     provenance_failures = _provenance_failures(
-        plan,
-        expected_sources,
+        root,
+        expected,
         manifest,
     )
 
-    failed_sources = {
-        path
-        for path in unverified_destinations + provenance_failures
-    }
+    failed_count = len(
+        set(unverified_destinations + provenance_failures)
+    )
 
-    reconciled_sources = len(
-        expected_sources & manifest_sources
-    ) - len(failed_sources)
+    reconciled_sources = (
+        len(expected & manifest_sources)
+        - failed_count
+    )
 
     return SourceCardReconciliation(
-        expected_sources=len(expected_sources),
-        reconciled_sources=reconciled_sources,
+        expected_sources=len(expected),
+        reconciled_sources=max(reconciled_sources, 0),
         missing_from_manifest=missing_from_manifest,
         unexpected_manifest_sources=unexpected_manifest_sources,
         unverified_destinations=unverified_destinations,
         provenance_failures=provenance_failures,
+    )
+
+
+def reconcile_source_cards(
+    plan: ImportPlan,
+) -> SourceCardReconciliation:
+    return reconcile_sources(
+        _planned_sources(plan),
+        plan.destination,
     )
