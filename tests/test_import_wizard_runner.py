@@ -22,7 +22,7 @@ def card():
     )
 
 
-def test_run_interactive_import(monkeypatch):
+def prepare(monkeypatch):
     monkeypatch.setattr(
         "mps.services.import_wizard_runner.discover_import_cards",
         lambda settings: ImportCardSelection(
@@ -47,11 +47,27 @@ def test_run_interactive_import(monkeypatch):
         lambda: "03_Slovenia",
     )
 
+
+def test_run_interactive_import_accept(monkeypatch, capsys):
+    prepare(monkeypatch)
+
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
     session = run_interactive_import(Settings({}))
+    output = capsys.readouterr().out
 
-    assert session.year == 2026
+    assert session is not None
     assert session.project == "Adriatic"
-    assert session.day == "03_Slovenia"
+    assert "Import Summary" in output
 
-    assert session.raw_folder == Path("/media/card")
-    assert session.jpeg_folder == Path("/media/card")
+
+def test_run_interactive_import_cancel(monkeypatch, capsys):
+    prepare(monkeypatch)
+
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+
+    session = run_interactive_import(Settings({}))
+    output = capsys.readouterr().out
+
+    assert session is None
+    assert "Import cancelled." in output

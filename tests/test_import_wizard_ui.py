@@ -1,8 +1,12 @@
 from pathlib import Path
 
 from mps.models.card import CardScanResult
+from mps.models.import_session_request import ImportSessionRequest
 from mps.services.import_card_selector import ImportCardSelection
-from mps.services.import_wizard_ui import build_wizard_intro
+from mps.services.import_wizard_ui import (
+    build_import_summary,
+    build_wizard_intro,
+)
 
 
 def card():
@@ -34,3 +38,22 @@ def test_build_wizard_intro():
     assert "Searching for photo cards..." in intro
     assert "RAW files : 100" in intro
     assert "JPEG files: 100" in intro
+
+
+def test_build_import_summary():
+    summary = build_import_summary(
+        ImportSessionRequest(
+            year=2026,
+            project="Adriatic",
+            day="03_Slovenia",
+            raw_folder=Path("/media/raw"),
+            jpeg_folder=Path("/media/jpeg"),
+        )
+    )
+
+    assert "Import Summary" in summary
+    assert "Year        : 2026" in summary
+    assert "Project     : Adriatic" in summary
+    assert "Day/session : 03_Slovenia" in summary
+    assert "RAW folder  : /media/raw" in summary
+    assert "JPEG folder : /media/jpeg" in summary

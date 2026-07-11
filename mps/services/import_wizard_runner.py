@@ -10,10 +10,13 @@ from mps.services.import_prompts import (
     prompt_project,
     prompt_year,
 )
-from mps.services.import_wizard_ui import build_wizard_intro
+from mps.services.import_wizard_ui import (
+    build_import_summary,
+    build_wizard_intro,
+)
 
 
-def run_interactive_import(settings: Settings) -> ImportSessionRequest:
+def run_interactive_import(settings: Settings) -> ImportSessionRequest | None:
     selection = discover_import_cards(settings)
 
     print(build_wizard_intro(selection))
@@ -35,10 +38,22 @@ def run_interactive_import(settings: Settings) -> ImportSessionRequest:
         else None
     )
 
-    return ImportSessionRequest(
+    request = ImportSessionRequest(
         year=year,
         project=project,
         day=day,
         raw_folder=raw_folder,
         jpeg_folder=jpeg_folder,
     )
+
+    print()
+    print(build_import_summary(request))
+    print()
+
+    answer = input("Continue with this import? [Y/n]: ").strip().lower()
+
+    if answer in {"n", "no"}:
+        print("Import cancelled.")
+        return None
+
+    return request
