@@ -17,7 +17,11 @@ from mps.services.import_engine import run_import
 from mps.services.import_planner import create_import_decision, create_import_plan
 from mps.services.import_session_builder import build_import_session
 from mps.services.import_wizard_runner import run_interactive_import
+from mps.services.import_wizard_ui import (
+    build_post_import_verification_summary,
+)
 from mps.services.pairing import pair_paths
+from mps.services.post_import_verifier import verify_import_root
 from mps.services.safe_copy import copy_one_file
 from mps.version import get_version
 
@@ -250,7 +254,16 @@ def run_real_import(
     print(f"Success:      {result.success}")
     print(f"Log:          {result.log_path}")
 
-    return 0 if result.success else 1
+    if not result.success:
+        return 1
+
+    verification = verify_import_root(decision.destination)
+
+    print()
+    print(build_post_import_verification_summary(verification))
+    print()
+
+    return 0 if verification.safe_to_release else 1
 
 
 def run_interactive_import_command() -> int:

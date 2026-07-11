@@ -3,11 +3,13 @@ from pathlib import Path
 from mps.config import Settings
 from mps.models.card import CardScanResult
 from mps.models.import_session_request import ImportSessionRequest
+from mps.models.post_import_verification import PostImportVerification
 from mps.services.import_card_selector import ImportCardSelection
 from mps.services.import_planner import create_import_plan
 from mps.services.import_wizard_ui import (
     build_import_plan_preview,
     build_import_summary,
+    build_post_import_verification_summary,
     build_wizard_intro,
 )
 
@@ -105,3 +107,51 @@ def test_build_import_plan_preview(tmp_path: Path):
     assert "Size bytes  : 10" in preview
     assert "Warnings" in preview
     assert "- 1 RAW file(s) have no matching JPEG" in preview
+
+
+def test_build_post_import_verification_summary_safe():
+    result = PostImportVerification(
+        import_root=Path("/photos/import"),
+        manifest_path=Path("/photos/import/import_manifest.json"),
+        expected_files=42,
+        verified_files=42,
+        expected_certificates=42,
+        verified_certificates=42,
+    )
+
+    summary = build_post_import_verification_summary(result)
+
+    assert "Post-Import Verification" in summary
+    assert "Files expected       : 42" in summary
+    assert "Files verified       : 42" in summary
+    assert "Certificates expected: 42" in summary
+    assert "Certificates verified: 42" in summary
+    assert "Card status          : SAFE TO RELEASE" in summary
+
+
+def test_build_post_import_verification_summary_blocked():
+    result = PostImportVerification(
+        import_root=Path("/photos/import"),
+        manifest_path=Path("/photos/import/import_manifest.json"),
+        expected_files=2,
+        verified_files=1,
+        missing_files=[Path("/photos/import/DSC0001.ARW")],
+        checksum_mismatches=[
+            Path("/photos/import/DSC0002.JPG")
+        ],
+        incomplete_entries=1,
+        expected_certificates=2,
+        verified_certificates=0,
+        provenance_errors=["Session ID mismatch"],
+    )
+
+    summary = build_post_import_verification_summary(result)
+
+    assert "Card status          : DO NOT RELEASE" in summary
+    assert "Missing files" in summary
+    assert "- /photos/import/DSC0001.ARW" in summary
+    assert "Checksum mismatches" in summary
+    assert "- /photos/import/DSC0002.JPG" in summary
+    assert "Incomplete manifest entries: 1" in summary
+    assert "Provenance errors" in summary
+    assert "- Session ID mismatch" in summary

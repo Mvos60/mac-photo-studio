@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from mps.models.import_session_request import ImportSessionRequest
+from mps.models.post_import_verification import PostImportVerification
 from mps.services.import_card_report import build_card_report
 from mps.services.import_card_selector import ImportCardSelection
 from mps.services.import_planner import ImportPlan
@@ -56,5 +57,49 @@ def build_import_plan_preview(plan: ImportPlan) -> str:
 
         for warning in plan.warnings:
             lines.append(f"- {warning}")
+
+    return "\n".join(lines)
+
+
+def build_post_import_verification_summary(
+    result: PostImportVerification,
+) -> str:
+    lines = [
+        "Post-Import Verification",
+        "========================",
+        "",
+        f"Files expected       : {result.expected_files}",
+        f"Files verified       : {result.verified_files}",
+        f"Certificates expected: {result.expected_certificates}",
+        f"Certificates verified: {result.verified_certificates}",
+        f"Card status          : {result.card_status}",
+    ]
+
+    if result.missing_files:
+        lines.extend(["", "Missing files"])
+
+        for path in result.missing_files:
+            lines.append(f"- {path}")
+
+    if result.checksum_mismatches:
+        lines.extend(["", "Checksum mismatches"])
+
+        for path in result.checksum_mismatches:
+            lines.append(f"- {path}")
+
+    if result.incomplete_entries:
+        lines.extend(
+            [
+                "",
+                f"Incomplete manifest entries: "
+                f"{result.incomplete_entries}",
+            ]
+        )
+
+    if result.provenance_errors:
+        lines.extend(["", "Provenance errors"])
+
+        for error in result.provenance_errors:
+            lines.append(f"- {error}")
 
     return "\n".join(lines)

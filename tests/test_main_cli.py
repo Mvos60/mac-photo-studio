@@ -4,6 +4,7 @@ from pathlib import Path
 from mps.config import Settings
 from mps.main import main
 from mps.models.import_session_request import ImportSessionRequest
+from mps.models.post_import_verification import PostImportVerification
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -114,6 +115,8 @@ def test_cli_real_import_copies_files_and_writes_provenance(
     assert "Mac Photo Studio Import" in output
     assert "Camera:       ILCE-7M3" in output
     assert "Success:      True" in output
+    assert "Post-Import Verification" in output
+    assert "Card status          : SAFE TO RELEASE" in output
 
     assert (destination / "DSC0001.ARW").read_bytes() == b"raw-data"
     assert (destination / "DSC0001.JPG").read_bytes() == b"jpg-data"
@@ -135,6 +138,59 @@ def test_cli_real_import_copies_files_and_writes_provenance(
     index_text = index_file.read_text(encoding="utf-8")
     assert "DSC0001.ARW" in index_text
     assert "DSC0001.JPG" in index_text
+
+
+def test_cli_real_import_blocks_release_when_verification_fails(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    raw = tmp_path / "raw"
+    jpg = tmp_path / "jpg"
+    raw.mkdir()
+    jpg.mkdir()
+
+    (raw / "DSC0001.ARW").write_bytes(b"raw-data")
+    (jpg / "DSC0001.JPG").write_bytes(b"jpg-data")
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.identify_camera_model",
+        lambda path: "ILCE-7M3",
+    )
+    monkeypatch.setattr(
+        "mps.main.verify_import_root",
+        lambda root: PostImportVerification(
+            import_root=Path(root),
+            manifest_path=Path(root) / "import_manifest.json",
+            expected_files=2,
+            verified_files=1,
+            expected_certificates=2,
+            verified_certificates=1,
+            provenance_errors=["Certificate hash mismatch"],
+        ),
+    )
+
+    exit_code = main(
+        [
+            "--import",
+            "2026",
+            "Adriatic",
+            "03_Slovenia",
+            str(raw),
+            str(jpg),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Post-Import Verification" in output
+    assert "Card status          : DO NOT RELEASE" in output
+    assert "Certificate hash mismatch" in output
 
 
 def test_cli_import_command_cancel_does_not_run_real_import(
