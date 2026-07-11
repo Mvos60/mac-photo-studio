@@ -6,10 +6,10 @@ from mps.services.import_card_selector import ImportCardSelection
 from mps.services.import_wizard_runner import run_interactive_import
 
 
-def card():
+def card(root: Path):
     return CardScanResult(
-        root=Path("/media/card"),
-        dcim_path=Path("/media/card/DCIM"),
+        root=root,
+        dcim_path=root / "DCIM",
         raw_count=42,
         jpeg_count=42,
         heif_count=0,
@@ -22,12 +22,12 @@ def card():
     )
 
 
-def prepare(monkeypatch):
+def prepare(monkeypatch, raw: Path, jpeg: Path):
     monkeypatch.setattr(
         "mps.services.import_wizard_runner.discover_import_cards",
         lambda settings: ImportCardSelection(
-            raw_card=card(),
-            jpeg_card=card(),
+            raw_card=card(raw),
+            jpeg_card=card(jpeg),
             warnings=[],
         ),
     )
@@ -48,21 +48,51 @@ def prepare(monkeypatch):
     )
 
 
-def test_run_interactive_import_accept(monkeypatch, capsys):
-    prepare(monkeypatch)
+def test_run_interactive_import_accept(monkeypatch, capsys, tmp_path: Path):
+    raw = tmp_path / "raw"
+    jpeg = tmp_path / "jpeg"
+
+    raw.mkdir()
+    jpeg.mkdir()
+
+    (raw / "DSC0001.ARW").write_bytes(b"raw")
+    (jpeg / "DSC0001.JPG").write_bytes(b"jpeg")
+
+    prepare(monkeypatch, raw, jpeg)
 
     monkeypatch.setattr("builtins.input", lambda _: "")
 
-    session = run_interactive_import(Settings({}))
+    settings = Settings(
+        {
+            "paths": {
+                "photos_root": str(tmp_path / "Photos_Master"),
+            },
+            "media": {
+                "raw_extensions": ["ARW"],
+                "jpeg_extensions": ["JPG", "JPEG"],
+            },
+        }
+    )
+
+    session = run_interactive_import(settings)
     output = capsys.readouterr().out
 
     assert session is not None
     assert session.project == "Adriatic"
     assert "Import Summary" in output
+    assert "Import Plan Preview" in output
+    assert "Pairs       : 1" in output
+    assert "Total files : 2" in output
 
 
-def test_run_interactive_import_cancel(monkeypatch, capsys):
-    prepare(monkeypatch)
+def test_run_interactive_import_cancel(monkeypatch, capsys, tmp_path: Path):
+    raw = tmp_path / "raw"
+    jpeg = tmp_path / "jpeg"
+
+    raw.mkdir()
+    jpeg.mkdir()
+
+    prepare(monkeypatch, raw, jpeg)
 
     monkeypatch.setattr("builtins.input", lambda _: "n")
 
@@ -71,3 +101,4 @@ def test_run_interactive_import_cancel(monkeypatch, capsys):
 
     assert session is None
     assert "Import cancelled." in output
+    assert "Import Plan Preview" not in output

@@ -10,7 +10,9 @@ from mps.services.import_prompts import (
     prompt_project,
     prompt_year,
 )
+from mps.services.import_request_planner import create_plan_from_request
 from mps.services.import_wizard_ui import (
+    build_import_plan_preview,
     build_import_summary,
     build_wizard_intro,
 )
@@ -55,5 +57,11 @@ def run_interactive_import(settings: Settings) -> ImportSessionRequest | None:
     if answer in {"n", "no"}:
         print("Import cancelled.")
         return None
+
+    plan = create_plan_from_request(request, settings)
+
+    print()
+    print(build_import_plan_preview(plan))
+    print()
 
     return request
