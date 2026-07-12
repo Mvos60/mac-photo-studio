@@ -19,6 +19,9 @@ from mps.services.import_media_report import build_media_report
 from mps.services.import_media_session_reconciler import (
     reconcile_import_media_session,
 )
+from mps.services.import_media_session_store import (
+    save_import_media_session,
+)
 
 
 def _new_session_id() -> str:
@@ -32,11 +35,25 @@ def run_import_media_session(
     project: str,
     day: str,
     session_id: str | None = None,
+    session: ImportMediaSession | None = None,
+    session_state_path: str | Path | None = None,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
 
-    active_session_id = session_id or _new_session_id()
-    session = ImportMediaSession()
+    active_session_id = (
+        session.session_id
+        if session is not None and session.session_id is not None
+        else session_id or _new_session_id()
+    )
+
+    active_session = session or ImportMediaSession()
+    active_session.session_id = active_session_id
+
+    state_path = (
+        Path(session_state_path)
+        if session_state_path is not None
+        else None
+    )
 
     batches_processed = 0
     copied = 0
@@ -46,18 +63,28 @@ def run_import_media_session(
     while True:
         selection = discover_import_media(settings)
         new_media = detect_new_media_sources(
-            session,
+            active_session,
             selection,
         )
 
-        print(build_media_report(new_media))
+        if new_media.empty and not selection.empty:
+            print(
+                "Mounted photo media has already been processed "
+                "in this session."
+            )
+        else:
+            print(build_media_report(new_media))
+
         print()
 
         if new_media.empty:
-            if batches_processed == 0:
+            if (
+                batches_processed == 0
+                and not active_session.processed_source_files
+            ):
                 print("No new photo media available.")
                 return ImportMediaWizardResult(
-                    session=session,
+                    session=active_session,
                     session_id=active_session_id,
                     batches_processed=0,
                     copied=0,
@@ -65,8 +92,23 @@ def run_import_media_session(
                     completed=False,
                 )
 
+            if not selection.empty:
+                print(
+                    "Eject or unmount the processed media and "
+                    "insert the next source."
+                )
+
+                answer = input(
+                    "Retry media search? [Y/n]: "
+                ).strip().lower()
+
+                if answer not in {"n", "no"}:
+                    continue
+
+                break
+
             answer = input(
-                "No new media found. Finish import session? [Y/n]: "
+                "No media mounted. Finish import session? [Y/n]: "
             ).strip().lower()
 
             if answer in {"n", "no"}:
@@ -76,7 +118,7 @@ def run_import_media_session(
 
         result = process_import_media_batch(
             new_media,
-            session,
+            active_session,
             settings,
             year=year,
             project=project,
@@ -90,7 +132,7 @@ def run_import_media_session(
         if not result.success:
             print("Media batch processing failed.")
             return ImportMediaWizardResult(
-                session=session,
+                session=active_session,
                 session_id=active_session_id,
                 batches_processed=batches_processed,
                 copied=copied,
@@ -100,6 +142,12 @@ def run_import_media_session(
 
         batches_processed += 1
         import_root = result.plan.destination
+
+        if state_path is not None:
+            save_import_media_session(
+                active_session,
+                state_path,
+            )
 
         print(
             f"Media batch verified. "
@@ -119,17 +167,19 @@ def run_import_media_session(
             break
 
     if import_root is None:
-        return ImportMediaWizardResult(
-            session=session,
-            session_id=active_session_id,
-            batches_processed=batches_processed,
-            copied=copied,
-            failed=failed,
-            completed=False,
+        from mps.services.import_media_batch_planner import (
+            media_import_destination,
+        )
+
+        import_root = media_import_destination(
+            settings,
+            year=year,
+            project=project,
+            day=day,
         )
 
     reconciliation = reconcile_import_media_session(
-        session,
+        active_session,
         import_root,
         session_id=active_session_id,
     )
@@ -159,8 +209,11 @@ def run_import_media_session(
     )
     print()
 
+    if reconciliation.reconciled and state_path is not None:
+        state_path.unlink(missing_ok=True)
+
     return ImportMediaWizardResult(
-        session=session,
+        session=active_session,
         session_id=active_session_id,
         batches_processed=batches_processed,
         copied=copied,

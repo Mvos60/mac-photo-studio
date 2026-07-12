@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from mps.config import load_settings
+from mps.constants import USER_STATE_DIR
 from mps.exceptions import MacPhotoStudioError
 from mps.gui.app import run_gui
 from mps.logger import configure_logging
@@ -15,6 +16,15 @@ from mps.services.cli_output import print_card_summary, print_decision_preview
 from mps.services.health import run_health_checks
 from mps.services.import_engine import run_import
 from mps.services.import_planner import create_import_decision, create_import_plan
+from mps.services.import_media_batch_planner import (
+    media_import_destination,
+)
+from mps.services.import_media_resume_validator import (
+    can_resume_import_media_session,
+)
+from mps.services.import_media_session_store import (
+    load_import_media_session,
+)
 from mps.services.import_media_wizard_runner import (
     run_import_media_session,
 )
@@ -287,6 +297,10 @@ def run_interactive_import_command() -> int:
     from datetime import datetime
 
     settings = load_settings()
+    state_path = (
+        USER_STATE_DIR
+        / "active_import_session.json"
+    )
 
     print("Mac Photo Studio Import Wizard")
     print("==============================")
@@ -295,6 +309,13 @@ def run_interactive_import_command() -> int:
     year = prompt_year(datetime.now().year)
     project = prompt_project()
     day = prompt_day()
+
+    import_root = media_import_destination(
+        settings,
+        year=year,
+        project=project,
+        day=day,
+    )
 
     print()
     print("Import Session")
@@ -305,19 +326,64 @@ def run_interactive_import_command() -> int:
     print(f"Day/session : {day}")
     print()
 
-    answer = input(
-        "Start this import session? [Y/n]: "
-    ).strip().lower()
+    restored_session = None
 
-    if answer in {"n", "no"}:
-        print("Import cancelled.")
-        return 0
+    if state_path.exists():
+        restored_session = load_import_media_session(
+            state_path
+        )
+
+        print(
+            "An interrupted import session was found."
+        )
+        print(
+            f"Session ID  : "
+            f"{restored_session.session_id}"
+        )
+        print()
+
+        answer = input(
+            "Resume this import session? [Y/n]: "
+        ).strip().lower()
+
+        if answer in {"n", "no"}:
+            print(
+                "Saved import session left unchanged."
+            )
+            return 0
+
+        if not can_resume_import_media_session(
+            restored_session,
+            import_root,
+        ):
+            print(
+                "Saved import session cannot be resumed safely."
+            )
+            print(
+                "The existing manifest or provenance "
+                "evidence did not verify."
+            )
+            return 1
+
+        print("Resuming verified import session.")
+        print()
+
+    else:
+        answer = input(
+            "Start this import session? [Y/n]: "
+        ).strip().lower()
+
+        if answer in {"n", "no"}:
+            print("Import cancelled.")
+            return 0
 
     result = run_import_media_session(
         settings,
         year=year,
         project=project,
         day=day,
+        session=restored_session,
+        session_state_path=state_path,
     )
 
     print()

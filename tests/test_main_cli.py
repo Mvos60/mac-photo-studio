@@ -267,6 +267,10 @@ def test_cli_import_command_cancel_does_not_start_media_session(
         lambda: _settings(tmp_path),
     )
     monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
+    )
+    monkeypatch.setattr(
         "mps.main.prompt_year",
         lambda default: 2026,
     )
@@ -310,6 +314,10 @@ def test_cli_import_command_runs_media_session(
     monkeypatch.setattr(
         "mps.main.load_settings",
         lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
     )
     monkeypatch.setattr(
         "mps.main.prompt_year",
@@ -386,9 +394,173 @@ def test_cli_import_command_runs_media_session(
             "year": 2026,
             "project": "Adriatic",
             "day": "03_Slovenia",
+            "session": None,
+            "session_state_path": (
+                tmp_path
+                / "state"
+                / "active_import_session.json"
+            ),
         }
     ]
     assert "Import Session Summary" in output
     assert "Batches processed : 2" in output
     assert "Files copied      : 4" in output
     assert "Success           : True" in output
+
+
+def test_cli_import_resumes_verified_saved_session(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.import_media_session import ImportMediaSession
+    from mps.models.import_media_wizard_result import (
+        ImportMediaWizardResult,
+    )
+    from mps.services.import_media_session_store import (
+        save_import_media_session,
+    )
+
+    state_dir = tmp_path / "state"
+    state_path = (
+        state_dir / "active_import_session.json"
+    )
+
+    saved = ImportMediaSession(
+        session_id="MPS-SESSION-RESUME",
+        source_fingerprints={"raw-card"},
+        processed_source_files=[
+            Path("/media/card/DSC0001.ARW")
+        ],
+    )
+
+    save_import_media_session(saved, state_path)
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        state_dir,
+    )
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: 2026,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda session, root: True,
+    )
+
+    def run_session(settings, **kwargs):
+        called.append(kwargs)
+
+        return ImportMediaWizardResult(
+            session=kwargs["session"],
+            session_id="MPS-SESSION-RESUME",
+            batches_processed=1,
+            copied=1,
+            failed=0,
+            completed=False,
+        )
+
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        run_session,
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+
+    exit_code = main(["import"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert called[0]["session"].session_id == (
+        "MPS-SESSION-RESUME"
+    )
+    assert called[0]["session_state_path"] == state_path
+    assert "Resuming verified import session." in output
+
+
+def test_cli_import_blocks_unsafe_saved_session(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.import_media_session import ImportMediaSession
+    from mps.services.import_media_session_store import (
+        save_import_media_session,
+    )
+
+    state_dir = tmp_path / "state"
+    state_path = (
+        state_dir / "active_import_session.json"
+    )
+
+    save_import_media_session(
+        ImportMediaSession(
+            session_id="MPS-SESSION-BAD",
+        ),
+        state_path,
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        state_dir,
+    )
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: 2026,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda session, root: False,
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: called.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+
+    exit_code = main(["import"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert called == []
+    assert (
+        "Saved import session cannot be resumed safely."
+        in output
+    )
+    assert state_path.exists()

@@ -55,7 +55,7 @@ def _source_files(
     return files
 
 
-def _destination(
+def media_import_destination(
     settings: Settings,
     *,
     year: int,
@@ -85,7 +85,7 @@ def create_media_batch_plan(
     project: str,
     day: str,
 ) -> ImportMediaBatchPlan:
-    destination = _destination(
+    destination = media_import_destination(
         settings,
         year=year,
         project=project,

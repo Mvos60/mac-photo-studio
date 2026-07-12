@@ -11,6 +11,7 @@ from mps.models.import_media_selection import ImportMediaSelection
 class ImportMediaSession:
     """Photo media collected and processed during one import session."""
 
+    session_id: str | None = None
     sources: list[CardScanResult] = field(default_factory=list)
     source_fingerprints: set[str] = field(default_factory=set)
     processed_source_files: list[Path] = field(default_factory=list)
