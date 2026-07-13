@@ -162,6 +162,7 @@ def test_append_file_event_preserves_application_context(tmp_path):
     assert result.event.description == "RAW development"
     assert result.event.metadata == {
         "workflow": "RAW-first",
+        "output_path": str(output),
     }
 
 

@@ -64,6 +64,9 @@ def append_file_provenance_event(
             ],
         )
 
+    event_metadata = dict(metadata or {})
+    event_metadata["output_path"] = str(output)
+
     photo_result = append_photo_provenance_event(
         import_root=import_root,
         photo_path=photo_path,
@@ -74,7 +77,7 @@ def append_file_provenance_event(
         application=application,
         application_version=application_version,
         description=description,
-        metadata=metadata,
+        metadata=event_metadata,
     )
 
     return ProvenanceFileEventAppendResult(
