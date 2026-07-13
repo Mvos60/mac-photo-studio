@@ -39,6 +39,9 @@ from mps.services.import_wizard_ui import (
     build_source_card_reconciliation_summary,
 )
 from mps.services.pairing import pair_paths
+from mps.services.photo_provenance_history import (
+    read_managed_photo_history,
+)
 from mps.services.photo_provenance_verification import (
     verify_managed_photo,
 )
@@ -417,6 +420,67 @@ def print_copy_one(source: str, destination: str) -> int:
     return 0 if result.success else 1
 
 
+def print_photo_history(
+    photo_path: str,
+) -> int:
+    settings = load_settings()
+
+    result = read_managed_photo_history(
+        settings=settings,
+        photo_path=photo_path,
+    )
+
+    print("Mac Photo Studio Photo Provenance History")
+    print("=" * 43)
+    print(f"Photo:         {result.photo_path}")
+    print(
+        f"Status:        "
+        f"{'TRUSTED' if result.trusted else 'NOT TRUSTED'}"
+    )
+    print()
+
+    for index, event in enumerate(
+        result.events,
+        start=1,
+    ):
+        print(f"{index}. {event.event_type.value.upper()}")
+        print(f"   Time:        {event.created_at}")
+
+        if event.application:
+            application = event.application
+
+            if event.application_version:
+                application += (
+                    f" {event.application_version}"
+                )
+
+            print(f"   Application: {application}")
+
+        camera_model = event.metadata.get(
+            "camera_model"
+        )
+
+        if camera_model:
+            print(f"   Camera:      {camera_model}")
+
+        if event.description:
+            print(f"   {event.description}")
+
+        output_path = event.metadata.get(
+            "output_path"
+        )
+
+        if output_path:
+            print(f"   Output:      {output_path}")
+
+        print()
+
+    for error in result.errors:
+        print(f"Reason:        {error}")
+
+    return 0 if result.trusted else 1
+
+
 def print_verify_photo(
     photo_path: str,
 ) -> int:
@@ -514,6 +578,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import":
             return run_interactive_import_command()
+        if args.command == "photo-history":
+            if len(args.command_args) != 1:
+                parser.error(
+                    "photo-history requires exactly one PHOTO path"
+                )
+
+            return print_photo_history(
+                args.command_args[0]
+            )
         if args.command == "verify-photo":
             if len(args.command_args) != 1:
                 parser.error(

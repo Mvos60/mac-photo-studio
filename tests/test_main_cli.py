@@ -670,3 +670,128 @@ def test_cli_verify_photo_reports_not_trusted(
         "Actual file SHA-256 does not match recorded identity"
         in output
     )
+
+
+def test_cli_photo_history_prints_readable_events(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.provenance_event import ProvenanceEvent
+    from mps.models.provenance_event_type import ProvenanceEventType
+    from mps.services.photo_provenance_history import (
+        PhotoProvenanceHistory,
+    )
+
+    photo = tmp_path / "DSC0001_master.tif"
+
+    events = (
+        ProvenanceEvent(
+            event_id="MPS-EVENT-001",
+            provenance_id="MPS-PROV-001",
+            session_id="MPS-SESSION-001",
+            event_type=ProvenanceEventType.INGEST,
+            created_at="2020-01-01T10:00:00Z",
+            input_sha256="raw-hash",
+            output_sha256="raw-hash",
+            application="Mac Photo Studio",
+            description="Verified camera media ingest",
+            metadata={
+                "camera_model": "ILCE-7M3",
+            },
+        ),
+        ProvenanceEvent(
+            event_id="MPS-EVENT-002",
+            provenance_id="MPS-PROV-001",
+            session_id="MPS-SESSION-002",
+            event_type=ProvenanceEventType.EDIT,
+            created_at="2020-01-01T11:00:00Z",
+            input_sha256="raw-hash",
+            output_sha256="master-hash",
+            application="darktable",
+            application_version="5.6.0",
+            description="RAW development",
+            metadata={
+                "output_path": str(photo),
+            },
+        ),
+    )
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.read_managed_photo_history",
+        lambda *, settings, photo_path: (
+            PhotoProvenanceHistory(
+                photo_path=Path(photo_path),
+                trusted=True,
+                events=events,
+            )
+        ),
+    )
+
+    exit_code = main(
+        [
+            "photo-history",
+            str(photo),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Photo Provenance History" in output
+    assert "Status:        TRUSTED" in output
+    assert "1. INGEST" in output
+    assert "Camera:      ILCE-7M3" in output
+    assert "2. EDIT" in output
+    assert "Application: darktable 5.6.0" in output
+    assert "RAW development" in output
+
+
+def test_cli_photo_history_reports_untrusted_history(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.photo_provenance_history import (
+        PhotoProvenanceHistory,
+    )
+
+    photo = tmp_path / "DSC0001_master.tif"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.read_managed_photo_history",
+        lambda *, settings, photo_path: (
+            PhotoProvenanceHistory(
+                photo_path=Path(photo_path),
+                trusted=False,
+                errors=[
+                    "Actual file SHA-256 does not match "
+                    "recorded identity"
+                ],
+            )
+        ),
+    )
+
+    exit_code = main(
+        [
+            "photo-history",
+            str(photo),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Status:        NOT TRUSTED" in output
+    assert (
+        "Actual file SHA-256 does not match recorded identity"
+        in output
+    )

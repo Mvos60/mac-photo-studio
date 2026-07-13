@@ -12,10 +12,16 @@ from mps.services.provenance_file_verifier import (
     ProvenanceFileVerification,
     verify_provenance_file,
 )
+from mps.services.provenance_history import (
+    ProvenanceHistory,
+    read_provenance_history,
+)
 
 __all__ = [
     "ProvenanceFileEventAppendResult",
     "ProvenanceFileVerification",
+    "ProvenanceHistory",
     "append_file_provenance_event",
+    "read_provenance_history",
     "verify_provenance_file",
 ]
