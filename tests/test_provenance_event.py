@@ -196,3 +196,26 @@ def test_event_rejects_unknown_event_type():
         pass
     else:
         raise AssertionError("ValueError was not raised")
+
+
+def test_created_event_timestamp_preserves_microseconds():
+    event = ProvenanceEvent.create(
+        provenance_id="MPS-PROV-TIME",
+        session_id="MPS-SESSION-TIME",
+        event_type="edit",
+        input_sha256="input-hash",
+        output_sha256="output-hash",
+    )
+
+    timestamp = event.created_at
+
+    assert timestamp.endswith("Z")
+    assert "." in timestamp
+
+    fractional_seconds = (
+        timestamp
+        .removesuffix("Z")
+        .split(".", maxsplit=1)[1]
+    )
+
+    assert len(fractional_seconds) == 6

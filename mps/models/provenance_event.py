@@ -11,8 +11,7 @@ from mps.models.provenance_event_type import ProvenanceEventType
 def _utc_now_iso() -> str:
     return (
         datetime.now(UTC)
-        .replace(microsecond=0)
-        .isoformat()
+        .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )
 
