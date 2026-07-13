@@ -1,3 +1,13 @@
+"""Historical import-session model.
+
+This model predates ImportMediaSession and the persistent sequential media
+workflow.
+
+It remains temporarily for historical session-manager and resume-engine test
+coverage. New import-session development must use
+mps.models.import_media_session.ImportMediaSession.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import uuid4

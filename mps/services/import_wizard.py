@@ -1,3 +1,12 @@
+"""Historical two-folder import wizard.
+
+This module predates the flexible ImportMediaSession workflow.
+
+It is retained during the 0.2 development cycle for documented historical
+behaviour and test coverage. New interactive import development must use
+mps.services.import_media_wizard_runner.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

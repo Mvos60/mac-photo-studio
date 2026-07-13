@@ -1,3 +1,11 @@
+"""Compatibility planner for ImportSessionRequest.
+
+This module serves the original two-folder import request architecture.
+
+New flexible media-session development must use the import_media planning and
+processing services.
+"""
+
 from __future__ import annotations
 
 from mps.config import Settings

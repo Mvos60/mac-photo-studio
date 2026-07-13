@@ -1,3 +1,12 @@
+"""Historical card-selection import wizard runner.
+
+This runner belongs to the original RAW-card/JPEG-card workflow and is not a
+current production entry point.
+
+New interactive import development must use
+mps.services.import_media_wizard_runner.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

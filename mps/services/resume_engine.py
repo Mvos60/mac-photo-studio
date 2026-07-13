@@ -1,3 +1,11 @@
+"""Historical ImportSession resume planner.
+
+This service predates persistent sequential ImportMediaSession recovery.
+
+Current interactive import recovery uses import_media_session_store and
+import_media_resume_validator.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,3 +1,11 @@
+"""Historical ImportSession persistence service.
+
+This service belongs to the pre-ImportMediaSession session architecture.
+
+Current sequential import recovery uses import_media_session_store and
+import_media_resume_validator.
+"""
+
 import json
 from dataclasses import asdict
 from pathlib import Path
