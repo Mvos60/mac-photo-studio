@@ -39,6 +39,9 @@ from mps.services.import_wizard_ui import (
     build_source_card_reconciliation_summary,
 )
 from mps.services.pairing import pair_paths
+from mps.services.photo_provenance_verification import (
+    verify_managed_photo,
+)
 from mps.services.post_import_verifier import verify_import_root
 from mps.services.safe_copy import copy_one_file
 from mps.services.source_card_reconciler import reconcile_source_cards
@@ -414,6 +417,53 @@ def print_copy_one(source: str, destination: str) -> int:
     return 0 if result.success else 1
 
 
+def print_verify_photo(
+    photo_path: str,
+) -> int:
+    settings = load_settings()
+
+    result = verify_managed_photo(
+        settings=settings,
+        photo_path=photo_path,
+    )
+
+    print("Mac Photo Studio Photo Verification")
+    print("=" * 35)
+    print(f"Photo:         {result.photo_path}")
+
+    if result.import_root is not None:
+        print(f"Import root:   {result.import_root}")
+
+    print()
+
+    if result.trusted:
+        print("Status:        TRUSTED")
+        print(
+            "This exact file belongs to a valid "
+            "recorded photographic lineage."
+        )
+
+        verification = result.verification
+
+        if (
+            verification is not None
+            and verification.chain is not None
+        ):
+            print(
+                f"Events:        "
+                f"{verification.chain.event_count}"
+            )
+
+        return 0
+
+    print("Status:        NOT TRUSTED")
+
+    for error in result.errors:
+        print(f"Reason:        {error}")
+
+    return 1
+
+
 def show_config() -> int:
     settings = load_settings()
     print(json.dumps(settings.data, indent=2))
@@ -423,6 +473,7 @@ def show_config() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mac-photo-studio")
     parser.add_argument("command", nargs="?")
+    parser.add_argument("command_args", nargs="*")
     parser.add_argument("--version", action="store_true")
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--scan-cards", action="store_true")
@@ -463,6 +514,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import":
             return run_interactive_import_command()
+        if args.command == "verify-photo":
+            if len(args.command_args) != 1:
+                parser.error(
+                    "verify-photo requires exactly one PHOTO path"
+                )
+
+            return print_verify_photo(
+                args.command_args[0]
+            )
         if args.version:
             print(get_version())
             return 0

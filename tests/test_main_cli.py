@@ -564,3 +564,109 @@ def test_cli_import_blocks_unsafe_saved_session(
         in output
     )
     assert state_path.exists()
+
+
+def test_cli_verify_photo_reports_trusted(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.photo_provenance_verification import (
+        PhotoProvenanceVerification,
+    )
+    from mps.services.provenance_event_chain_verifier import (
+        StoredProvenanceEventChainVerification,
+    )
+    from mps.services.provenance_file_verifier import (
+        ProvenanceFileVerification,
+    )
+
+    photo = tmp_path / "DSC0001.ARW"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.verify_managed_photo",
+        lambda *, settings, photo_path: (
+            PhotoProvenanceVerification(
+                photo_path=Path(photo_path),
+                trusted=True,
+                import_root=tmp_path / "import",
+                verification=ProvenanceFileVerification(
+                    trusted=True,
+                    path=Path(photo_path),
+                    actual_sha256="abc123",
+                    chain=(
+                        StoredProvenanceEventChainVerification(
+                            provenance_id="MPS-PROV-001",
+                            valid=True,
+                            event_count=3,
+                        )
+                    ),
+                ),
+            )
+        ),
+    )
+
+    exit_code = main(
+        [
+            "verify-photo",
+            str(photo),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Mac Photo Studio Photo Verification" in output
+    assert "Status:        TRUSTED" in output
+    assert "valid recorded photographic lineage" in output
+    assert "Events:        3" in output
+
+
+def test_cli_verify_photo_reports_not_trusted(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.photo_provenance_verification import (
+        PhotoProvenanceVerification,
+    )
+
+    photo = tmp_path / "DSC0001.ARW"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.verify_managed_photo",
+        lambda *, settings, photo_path: (
+            PhotoProvenanceVerification(
+                photo_path=Path(photo_path),
+                trusted=False,
+                errors=[
+                    "Actual file SHA-256 does not match "
+                    "recorded identity"
+                ],
+            )
+        ),
+    )
+
+    exit_code = main(
+        [
+            "verify-photo",
+            str(photo),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Status:        NOT TRUSTED" in output
+    assert (
+        "Actual file SHA-256 does not match recorded identity"
+        in output
+    )
