@@ -1,6 +1,6 @@
 app:
   name: Mac Photo Studio
-  version: 0.1.0-alpha3
+  version: 0.2.0
 
 paths:
   photos_root: ~/Photos_Master

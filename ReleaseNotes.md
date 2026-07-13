@@ -1,41 +1,66 @@
-# Release Notes — Mac Photo Studio 0.1.0-alpha3
+# Release Notes — Mac Photo Studio 0.2.0
 
-Alpha3 handles the digiKam AppImage situation we found on Mac's laptop.
+Mac Photo Studio 0.2.0 is the first complete verified photographer-workflow release.
 
-## Recommended digiKam AppImage setup
-
-Place the AppImage here:
+## Workflow
 
 ```text
-~/Applications/digiKam-9.1.0-Qt6-x86-64.appimage
+Camera
+→ verified Mac Photo Studio import
+→ digiKam
+→ trusted handoff to darktable
+→ recorded edit
+→ recorded and verified export
 ```
 
-Then edit:
+## Import guarantees
 
-```text
-~/.config/mac-photo-studio/settings.yaml
-```
+A successful import includes:
 
-Set:
+- SHA-256 verified file copies
+- import manifest
+- provenance certificates
+- provenance certificate index
+- ingest provenance events
+- post-import verification
+- source-card reconciliation
 
-```yaml
-applications:
-  digikam:
-    executable: ~/Applications/digiKam-9.1.0-Qt6-x86-64.appimage
-```
+The program reports `SAFE TO RELEASE` only when imported files and certificates verify.
 
-Then run:
+## Provenance
 
-```bash
-mac-photo-studio --health
-```
+Mac Photo Studio records a file-linked photographic lineage:
 
-## Card scanner
+- `INGEST`
+- `EDIT`
+- `DERIVATIVE`
+- `EXPORT`
 
-Run:
+Each derived file retains the same provenance identity while also receiving its own SHA-256 identity.
 
-```bash
-mac-photo-studio --scan-cards
-```
+Modified or unknown files are not reported as trusted.
 
-This only scans and reports. It does not copy, import, delete, or modify anything.
+## digiKam
+
+digiKam remains responsible for catalogue management, albums, tags, ratings, searches and face recognition.
+
+Catalogue-only actions do not create photographic provenance events.
+
+## darktable
+
+darktable remains responsible for RAW development and exports.
+
+Mac Photo Sudio can:
+
+- verify a managed photograph before launching darktable
+- record the developed output
+- record the exported output
+- verify the final exported photograph
+
+## Tested release status
+
+- 421 automated tests passed
+- real-laptop smoke test passed
+- verified RAW/JPEG import passed
+- trusted ingest/edit/export history passed
+- final JPEG  provenance verification passed
