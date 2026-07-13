@@ -42,11 +42,11 @@ from mps.services.pairing import pair_paths
 from mps.services.photo_provenance_history import (
     read_managed_photo_history,
 )
-from mps.services.photo_provenance_recording import (
-    record_managed_photo_action,
-)
 from mps.services.photo_provenance_verification import (
     verify_managed_photo,
+)
+from mps.services.photo_workflow_integration import (
+    record_photo_workflow_action,
 )
 from mps.services.post_import_verifier import verify_import_root
 from mps.services.safe_copy import copy_one_file
@@ -441,11 +441,11 @@ def print_record_photo_action(
     if event_type == "export":
         description = "Photographic export"
 
-    result = record_managed_photo_action(
+    result = record_photo_workflow_action(
         settings=settings,
         source_path=source_path,
         output_path=output_path,
-        event_type=event_type,
+        action=event_type,
         application=application,
         description=description,
     )

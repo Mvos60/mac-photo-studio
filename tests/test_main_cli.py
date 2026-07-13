@@ -816,7 +816,7 @@ def test_cli_record_edit_reports_recorded(
         lambda: _settings(tmp_path),
     )
     monkeypatch.setattr(
-        "mps.main.record_managed_photo_action",
+        "mps.main.record_photo_workflow_action",
         lambda **kwargs: PhotoProvenanceRecording(
             source_path=Path(kwargs["source_path"]),
             output_path=Path(kwargs["output_path"]),
@@ -870,7 +870,7 @@ def test_cli_record_export_reports_recorded(
         lambda: _settings(tmp_path),
     )
     monkeypatch.setattr(
-        "mps.main.record_managed_photo_action",
+        "mps.main.record_photo_workflow_action",
         lambda **kwargs: PhotoProvenanceRecording(
             source_path=Path(kwargs["source_path"]),
             output_path=Path(kwargs["output_path"]),
@@ -921,7 +921,7 @@ def test_cli_record_action_reports_failure(
         lambda: _settings(tmp_path),
     )
     monkeypatch.setattr(
-        "mps.main.record_managed_photo_action",
+        "mps.main.record_photo_workflow_action",
         lambda **kwargs: PhotoProvenanceRecording(
             source_path=Path(kwargs["source_path"]),
             output_path=Path(kwargs["output_path"]),
