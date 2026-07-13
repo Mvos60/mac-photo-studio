@@ -795,3 +795,156 @@ def test_cli_photo_history_reports_untrusted_history(
         "Actual file SHA-256 does not match recorded identity"
         in output
     )
+
+
+def test_cli_record_edit_reports_recorded(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.provenance_event import ProvenanceEvent
+    from mps.models.provenance_event_type import ProvenanceEventType
+    from mps.services.photo_provenance_recording import (
+        PhotoProvenanceRecording,
+    )
+
+    source = tmp_path / "DSC0001.ARW"
+    output = tmp_path / "DSC0001_master.tif"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.record_managed_photo_action",
+        lambda **kwargs: PhotoProvenanceRecording(
+            source_path=Path(kwargs["source_path"]),
+            output_path=Path(kwargs["output_path"]),
+            recorded=True,
+            session_id="MPS-SESSION-TEST",
+            event=ProvenanceEvent(
+                event_id="MPS-EVENT-001",
+                provenance_id="MPS-PROV-001",
+                session_id="MPS-SESSION-TEST",
+                event_type=ProvenanceEventType.EDIT,
+                created_at="2026-07-13T10:00:00Z",
+                input_sha256="raw-hash",
+                output_sha256="master-hash",
+            ),
+        ),
+    )
+
+    exit_code = main(
+        [
+            "record-edit",
+            str(source),
+            str(output),
+        ]
+    )
+
+    output_text = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Mac Photo Studio Record Edit" in output_text
+    assert "Status:        RECORDED" in output_text
+    assert "Event:         EDIT" in output_text
+    assert "continues the recorded photographic lineage" in output_text
+
+
+def test_cli_record_export_reports_recorded(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.provenance_event import ProvenanceEvent
+    from mps.models.provenance_event_type import ProvenanceEventType
+    from mps.services.photo_provenance_recording import (
+        PhotoProvenanceRecording,
+    )
+
+    source = tmp_path / "DSC0001_master.tif"
+    output = tmp_path / "DSC0001_web.jpg"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.record_managed_photo_action",
+        lambda **kwargs: PhotoProvenanceRecording(
+            source_path=Path(kwargs["source_path"]),
+            output_path=Path(kwargs["output_path"]),
+            recorded=True,
+            session_id="MPS-SESSION-TEST",
+            event=ProvenanceEvent(
+                event_id="MPS-EVENT-002",
+                provenance_id="MPS-PROV-001",
+                session_id="MPS-SESSION-TEST",
+                event_type=ProvenanceEventType.EXPORT,
+                created_at="2026-07-13T11:00:00Z",
+                input_sha256="master-hash",
+                output_sha256="jpeg-hash",
+            ),
+        ),
+    )
+
+    exit_code = main(
+        [
+            "record-export",
+            str(source),
+            str(output),
+        ]
+    )
+
+    output_text = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Mac Photo Studio Record Export" in output_text
+    assert "Status:        RECORDED" in output_text
+    assert "Event:         EXPORT" in output_text
+
+
+def test_cli_record_action_reports_failure(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.photo_provenance_recording import (
+        PhotoProvenanceRecording,
+    )
+
+    source = tmp_path / "DSC0001.ARW"
+    output = tmp_path / "DSC0001_master.tif"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.record_managed_photo_action",
+        lambda **kwargs: PhotoProvenanceRecording(
+            source_path=Path(kwargs["source_path"]),
+            output_path=Path(kwargs["output_path"]),
+            recorded=False,
+            errors=[
+                "Source file is not the current provenance chain tip"
+            ],
+        ),
+    )
+
+    exit_code = main(
+        [
+            "record-edit",
+            str(source),
+            str(output),
+        ]
+    )
+
+    output_text = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Status:        NOT RECORDED" in output_text
+    assert (
+        "Source file is not the current provenance chain tip"
+        in output_text
+    )

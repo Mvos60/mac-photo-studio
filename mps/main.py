@@ -42,6 +42,9 @@ from mps.services.pairing import pair_paths
 from mps.services.photo_provenance_history import (
     read_managed_photo_history,
 )
+from mps.services.photo_provenance_recording import (
+    record_managed_photo_action,
+)
 from mps.services.photo_provenance_verification import (
     verify_managed_photo,
 )
@@ -420,6 +423,68 @@ def print_copy_one(source: str, destination: str) -> int:
     return 0 if result.success else 1
 
 
+def print_record_photo_action(
+    *,
+    source_path: str,
+    output_path: str,
+    event_type: str,
+) -> int:
+    settings = load_settings()
+
+    application = None
+    description = None
+
+    if event_type == "edit":
+        application = "darktable"
+        description = "Photographic edit"
+
+    if event_type == "export":
+        description = "Photographic export"
+
+    result = record_managed_photo_action(
+        settings=settings,
+        source_path=source_path,
+        output_path=output_path,
+        event_type=event_type,
+        application=application,
+        description=description,
+    )
+
+    title = (
+        "Mac Photo Studio Record Edit"
+        if event_type == "edit"
+        else "Mac Photo Studio Record Export"
+    )
+
+    print(title)
+    print("=" * len(title))
+    print(f"Source:        {result.source_path}")
+    print(f"Output:        {result.output_path}")
+    print()
+
+    if result.recorded:
+        print("Status:        RECORDED")
+
+        if result.event is not None:
+            print(
+                f"Event:         "
+                f"{result.event.event_type.value.upper()}"
+            )
+
+        print(
+            "The output file now continues the "
+            "recorded photographic lineage."
+        )
+        return 0
+
+    print("Status:        NOT RECORDED")
+
+    for error in result.errors:
+        print(f"Reason:        {error}")
+
+    return 1
+
+
 def print_photo_history(
     photo_path: str,
 ) -> int:
@@ -578,6 +643,26 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import":
             return run_interactive_import_command()
+        if args.command in {
+            "record-edit",
+            "record-export",
+        }:
+            if len(args.command_args) != 2:
+                parser.error(
+                    f"{args.command} requires SOURCE and OUTPUT paths"
+                )
+
+            event_type = (
+                "edit"
+                if args.command == "record-edit"
+                else "export"
+            )
+
+            return print_record_photo_action(
+                source_path=args.command_args[0],
+                output_path=args.command_args[1],
+                event_type=event_type,
+            )
         if args.command == "photo-history":
             if len(args.command_args) != 1:
                 parser.error(
