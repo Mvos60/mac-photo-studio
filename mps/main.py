@@ -55,6 +55,7 @@ from mps.services.photo_workflow_integration import (
 from mps.services.post_import_verifier import verify_import_root
 from mps.services.safe_copy import copy_one_file
 from mps.services.source_card_reconciler import reconcile_source_cards
+from mps.services.workflow_application_launcher import launch_digikam
 from mps.version import get_version
 
 
@@ -409,7 +410,35 @@ def run_interactive_import_command() -> int:
     print(f"Completed         : {result.completed}")
     print(f"Success           : {result.success}")
 
-    return 0 if result.success else 1
+    if not result.success:
+        return 1
+
+    if settings.get(
+        "gui.launch_digikam_after_import",
+        False,
+    ):
+        launch = launch_digikam(
+            settings=settings,
+            import_root=import_root,
+        )
+
+        print()
+        print("digiKam Handoff")
+        print("================")
+        print()
+
+        if launch.launched:
+            print("Status           : LAUNCHED")
+            print(f"Import root      : {import_root}")
+        else:
+            print("Status           : NOT LAUNCHED")
+
+            for error in launch.errors:
+                print(f"Reason           : {error}")
+
+            return 1
+
+    return 0
 
 
 def print_copy_one(source: str, destination: str) -> int:

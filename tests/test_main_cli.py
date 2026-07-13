@@ -1074,3 +1074,244 @@ def test_cli_application_workflow_reports_failure(
         "Source file is not the current provenance chain tip"
         in text
     )
+
+
+def test_cli_import_launches_digikam_when_enabled(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.import_media_session import ImportMediaSession
+    from mps.models.import_media_wizard_result import (
+        ImportMediaWizardResult,
+    )
+    from mps.services.workflow_application_launcher import (
+        WorkflowApplicationLaunch,
+    )
+
+    settings = _settings(tmp_path)
+    settings.data["gui"] = {
+        "launch_digikam_after_import": True,
+    }
+
+    import_root = (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "Adriatic"
+        / "03_Slovenia"
+    )
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: 2026,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: ImportMediaWizardResult(
+            session=ImportMediaSession(),
+            session_id="MPS-SESSION-TEST",
+            batches_processed=1,
+            copied=2,
+            failed=0,
+            completed=True,
+            reconciliation=type(
+                "Reconciliation",
+                (),
+                {"reconciled": True},
+            )(),
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.launch_digikam",
+        lambda **kwargs: called.append(kwargs)
+        or WorkflowApplicationLaunch(
+            application="digiKam",
+            launched=True,
+            target=Path(kwargs["import_root"]),
+        ),
+    )
+
+    exit_code = main(["import"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert called == [
+        {
+            "settings": settings,
+            "import_root": import_root,
+        }
+    ]
+    assert "digiKam Handoff" in output
+    assert "Status           : LAUNCHED" in output
+
+
+def test_cli_import_skips_digikam_when_disabled(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.models.import_media_session import ImportMediaSession
+    from mps.models.import_media_wizard_result import (
+        ImportMediaWizardResult,
+    )
+
+    settings = _settings(tmp_path)
+    settings.data["gui"] = {
+        "launch_digikam_after_import": False,
+    }
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: 2026,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: ImportMediaWizardResult(
+            session=ImportMediaSession(),
+            session_id="MPS-SESSION-TEST",
+            batches_processed=1,
+            copied=2,
+            failed=0,
+            completed=True,
+            reconciliation=type(
+                "Reconciliation",
+                (),
+                {"reconciled": True},
+            )(),
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.launch_digikam",
+        lambda **kwargs: called.append(kwargs),
+    )
+
+    exit_code = main(["import"])
+
+    assert exit_code == 0
+    assert called == []
+
+
+def test_cli_import_reports_digikam_launch_failure(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.import_media_session import ImportMediaSession
+    from mps.models.import_media_wizard_result import (
+        ImportMediaWizardResult,
+    )
+    from mps.services.workflow_application_launcher import (
+        WorkflowApplicationLaunch,
+    )
+
+    settings = _settings(tmp_path)
+    settings.data["gui"] = {
+        "launch_digikam_after_import": True,
+    }
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: 2026,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: "03_Slovenia",
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: ImportMediaWizardResult(
+            session=ImportMediaSession(),
+            session_id="MPS-SESSION-TEST",
+            batches_processed=1,
+            copied=2,
+            failed=0,
+            completed=True,
+            reconciliation=type(
+                "Reconciliation",
+                (),
+                {"reconciled": True},
+            )(),
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+    monkeypatch.setattr(
+        "mps.main.launch_digikam",
+        lambda **kwargs: WorkflowApplicationLaunch(
+            application="digiKam",
+            launched=False,
+            target=tmp_path,
+            errors=(
+                "digiKam application was not found",
+            ),
+        ),
+    )
+
+    exit_code = main(["import"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Status           : NOT LAUNCHED" in output
+    assert "digiKam application was not found" in output
+
+
