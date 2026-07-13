@@ -45,6 +45,10 @@ from mps.services.photo_provenance_history import (
 from mps.services.photo_provenance_verification import (
     verify_managed_photo,
 )
+from mps.services.photographer_workflow_commands import (
+    record_darktable_workflow_command,
+    record_digikam_workflow_command,
+)
 from mps.services.photo_workflow_integration import (
     record_photo_workflow_action,
 )
@@ -423,6 +427,57 @@ def print_copy_one(source: str, destination: str) -> int:
     return 0 if result.success else 1
 
 
+def print_application_workflow_action(
+    *,
+    application: str,
+    action: str,
+    source_path: str,
+    output_path: str,
+) -> int:
+    settings = load_settings()
+
+    if application == "digikam":
+        result = record_digikam_workflow_command(
+            settings=settings,
+            action=action,
+            source_path=source_path,
+            output_path=output_path,
+        )
+        recorded = result.recorded
+        errors = result.errors
+    else:
+        result = record_darktable_workflow_command(
+            settings=settings,
+            action=action,
+            source_path=source_path,
+            output_path=output_path,
+        )
+        recorded = result.recorded
+        errors = result.errors
+
+    title = (
+        f"Mac Photo Studio {application} "
+        f"{action.capitalize()}"
+    )
+
+    print(title)
+    print("=" * len(title))
+    print(f"Source:        {Path(source_path).expanduser()}")
+    print(f"Output:        {Path(output_path).expanduser()}")
+    print()
+
+    if recorded:
+        print("Status:        RECORDED")
+        return 0
+
+    print("Status:        NOT RECORDED")
+
+    for error in errors:
+        print(f"Reason:        {error}")
+
+    return 1
+
+
 def print_record_photo_action(
     *,
     source_path: str,
@@ -643,6 +698,30 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import":
             return run_interactive_import_command()
+        workflow_commands = {
+            "digikam-derivative": ("digikam", "derivative"),
+            "digikam-export": ("digikam", "export"),
+            "darktable-edit": ("darktable", "edit"),
+            "darktable-export": ("darktable", "export"),
+        }
+
+        if args.command in workflow_commands:
+            if len(args.command_args) != 2:
+                parser.error(
+                    f"{args.command} requires SOURCE and OUTPUT paths"
+                )
+
+            application, action = workflow_commands[
+                args.command
+            ]
+
+            return print_application_workflow_action(
+                application=application,
+                action=action,
+                source_path=args.command_args[0],
+                output_path=args.command_args[1],
+            )
+
         if args.command in {
             "record-edit",
             "record-export",

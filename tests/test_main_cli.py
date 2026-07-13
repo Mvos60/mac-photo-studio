@@ -948,3 +948,129 @@ def test_cli_record_action_reports_failure(
         "Source file is not the current provenance chain tip"
         in output_text
     )
+
+
+def test_cli_darktable_edit_uses_darktable_command(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.photo_provenance_recording import (
+        PhotoProvenanceRecording,
+    )
+
+    source = tmp_path / "DSC0001.ARW"
+    output = tmp_path / "DSC0001_master.tif"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.record_darktable_workflow_command",
+        lambda **kwargs: PhotoProvenanceRecording(
+            source_path=Path(kwargs["source_path"]),
+            output_path=Path(kwargs["output_path"]),
+            recorded=True,
+        ),
+    )
+
+    exit_code = main(
+        [
+            "darktable-edit",
+            str(source),
+            str(output),
+        ]
+    )
+
+    text = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Mac Photo Studio darktable Edit" in text
+    assert "Status:        RECORDED" in text
+
+
+def test_cli_digikam_export_uses_digikam_command(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.digikam_workflow_adapter import (
+        DigiKamWorkflowResult,
+    )
+
+    source = tmp_path / "DSC0001.JPG"
+    output = tmp_path / "DSC0001_export.JPG"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.record_digikam_workflow_command",
+        lambda **kwargs: DigiKamWorkflowResult(
+            action="export",
+            provenance_relevant=True,
+            recorded=True,
+        ),
+    )
+
+    exit_code = main(
+        [
+            "digikam-export",
+            str(source),
+            str(output),
+        ]
+    )
+
+    text = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Mac Photo Studio digikam Export" in text
+    assert "Status:        RECORDED" in text
+
+
+def test_cli_application_workflow_reports_failure(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.photo_provenance_recording import (
+        PhotoProvenanceRecording,
+    )
+
+    source = tmp_path / "DSC0001.ARW"
+    output = tmp_path / "DSC0001_master.tif"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.record_darktable_workflow_command",
+        lambda **kwargs: PhotoProvenanceRecording(
+            source_path=Path(kwargs["source_path"]),
+            output_path=Path(kwargs["output_path"]),
+            recorded=False,
+            errors=[
+                "Source file is not the current provenance chain tip"
+            ],
+        ),
+    )
+
+    exit_code = main(
+        [
+            "darktable-edit",
+            str(source),
+            str(output),
+        ]
+    )
+
+    text = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Status:        NOT RECORDED" in text
+    assert (
+        "Source file is not the current provenance chain tip"
+        in text
+    )
