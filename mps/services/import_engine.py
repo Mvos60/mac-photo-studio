@@ -14,11 +14,15 @@ from mps.services.manifest_writer import (
     write_manifest_to_path,
 )
 from mps.services.provenance_certificate import create_certificate
+from mps.services.provenance_event_writer import write_event_for_import
 from mps.services.provenance_index_builder import index_entry_from_certificate
 from mps.services.provenance_index_paths import index_path
 from mps.services.provenance_index_writer import (
     load_or_create_index,
     write_index,
+)
+from mps.services.provenance_ingest_event import (
+    ingest_event_from_certificate,
 )
 from mps.services.provenance_writer import write_certificate_for_import
 from mps.services.safe_copy import CopyResult, copy_one_file
@@ -170,6 +174,16 @@ def _write_provenance_for_copies(
                 certificate,
                 certificate_path,
             )
+        )
+
+        ingest_event = ingest_event_from_certificate(
+            certificate,
+            application_version=get_version(),
+        )
+
+        write_event_for_import(
+            ingest_event,
+            import_root,
         )
 
     write_index(
