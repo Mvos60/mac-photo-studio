@@ -13,6 +13,9 @@ from mps.logger import configure_logging
 from mps.services.camera_identifier import identify_camera_model
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.cli_output import print_card_summary, print_decision_preview
+from mps.services.darktable_export_completion import (
+    complete_darktable_export,
+)
 from mps.services.digikam_darktable_handoff import (
     handoff_digikam_photo_to_darktable,
 )
@@ -459,6 +462,40 @@ def print_copy_one(source: str, destination: str) -> int:
     return 0 if result.success else 1
 
 
+def print_darktable_export_completion(
+    *,
+    source_path: str,
+    output_path: str,
+) -> int:
+    settings = load_settings()
+
+    result = complete_darktable_export(
+        settings=settings,
+        source_path=source_path,
+        output_path=output_path,
+    )
+
+    print("Mac Photo Studio darktable Export Completion")
+    print("=" * 45)
+    print(f"Source:        {result.source_path}")
+    print(f"Output:        {result.output_path}")
+    print()
+
+    if result.completed:
+        print("Status:        VERIFIED")
+        print(
+            "The exported photo was recorded and verified."
+        )
+        return 0
+
+    print("Status:        NOT VERIFIED")
+
+    for error in result.errors:
+        print(f"Reason:        {error}")
+
+    return 1
+
+
 def print_digikam_darktable_handoff(
     photo_path: str,
 ) -> int:
@@ -760,6 +797,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import":
             return run_interactive_import_command()
+        if args.command == "darktable-complete-export":
+            if len(args.command_args) != 2:
+                parser.error(
+                    "darktable-complete-export requires "
+                    "SOURCE and OUTPUT paths"
+                )
+
+            return print_darktable_export_completion(
+                source_path=args.command_args[0],
+                output_path=args.command_args[1],
+            )
+
         if args.command == "digikam-darktable":
             if len(args.command_args) != 1:
                 parser.error(
