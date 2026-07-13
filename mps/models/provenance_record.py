@@ -1,3 +1,16 @@
+"""Historical chain-of-custody provenance model.
+
+ProvenanceRecord predates the production ProvenanceCertificate ingest evidence
+model.
+
+It is retained during the 0.2 development cycle for historical test coverage.
+New Extended Photo Provenance development must not extend this model.
+
+Current verified-ingest evidence uses:
+
+    mps.models.provenance_certificate.ProvenanceCertificate
+"""
+
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -5,7 +18,12 @@ from uuid import uuid4
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 @dataclass(slots=True)

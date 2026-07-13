@@ -1,3 +1,14 @@
+"""Historical standalone provenance certificate helper.
+
+The production verified-ingest path creates certificates and updates the
+certificate index through mps.services.import_engine.
+
+This helper remains temporarily for compatibility and test coverage.
+
+New Extended Photo Provenance development should extend the production ingest
+evidence architecture rather than this standalone helper.
+"""
+
 from pathlib import Path
 
 from mps.models.provenance_certificate import ProvenanceCertificate
