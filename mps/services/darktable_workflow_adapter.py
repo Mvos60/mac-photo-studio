@@ -10,9 +10,25 @@ from mps.services.photo_provenance_recording import (
 from mps.services.photo_workflow_integration import (
     record_photo_workflow_action,
 )
+from mps.services.workflow_application_context import (
+    resolve_darktable_context,
+)
 
 
 DARKTABLE_APPLICATION = "darktable"
+
+
+def _darktable_version(
+    *,
+    settings: Settings,
+    application_version: str | None,
+) -> str | None:
+    if application_version is not None:
+        return application_version
+
+    context = resolve_darktable_context(settings)
+
+    return context.version
 
 
 def record_darktable_edit(
@@ -24,13 +40,18 @@ def record_darktable_edit(
     description: str = "RAW development",
     metadata: dict[str, Any] | None = None,
 ) -> PhotoProvenanceRecording:
+    resolved_version = _darktable_version(
+        settings=settings,
+        application_version=application_version,
+    )
+
     return record_photo_workflow_action(
         settings=settings,
         source_path=source_path,
         output_path=output_path,
         action="edit",
         application=DARKTABLE_APPLICATION,
-        application_version=application_version,
+        application_version=resolved_version,
         description=description,
         metadata=metadata,
     )
@@ -45,13 +66,18 @@ def record_darktable_export(
     description: str = "Darktable export",
     metadata: dict[str, Any] | None = None,
 ) -> PhotoProvenanceRecording:
+    resolved_version = _darktable_version(
+        settings=settings,
+        application_version=application_version,
+    )
+
     return record_photo_workflow_action(
         settings=settings,
         source_path=source_path,
         output_path=output_path,
         action="export",
         application=DARKTABLE_APPLICATION,
-        application_version=application_version,
+        application_version=resolved_version,
         description=description,
         metadata=metadata,
     )

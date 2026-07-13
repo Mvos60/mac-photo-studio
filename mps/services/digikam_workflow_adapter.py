@@ -11,6 +11,9 @@ from mps.services.photo_provenance_recording import (
 from mps.services.photo_workflow_integration import (
     record_photo_workflow_action,
 )
+from mps.services.workflow_application_context import (
+    resolve_digikam_context,
+)
 
 
 DIGIKAM_APPLICATION = "digiKam"
@@ -31,6 +34,19 @@ class DigiKamWorkflowResult:
     recorded: bool
     recording: PhotoProvenanceRecording | None = None
     errors: list[str] = field(default_factory=list)
+
+
+def _digikam_version(
+    *,
+    settings: Settings,
+    application_version: str | None,
+) -> str | None:
+    if application_version is not None:
+        return application_version
+
+    context = resolve_digikam_context(settings)
+
+    return context.version
 
 
 def handle_digikam_catalogue_action(
@@ -58,13 +74,18 @@ def record_digikam_derivative(
     description: str = "digiKam derived file",
     metadata: dict[str, Any] | None = None,
 ) -> DigiKamWorkflowResult:
+    resolved_version = _digikam_version(
+        settings=settings,
+        application_version=application_version,
+    )
+
     recording = record_photo_workflow_action(
         settings=settings,
         source_path=source_path,
         output_path=output_path,
         action="derivative",
         application=DIGIKAM_APPLICATION,
-        application_version=application_version,
+        application_version=resolved_version,
         description=description,
         metadata=metadata,
     )
@@ -87,13 +108,18 @@ def record_digikam_export(
     description: str = "digiKam export",
     metadata: dict[str, Any] | None = None,
 ) -> DigiKamWorkflowResult:
+    resolved_version = _digikam_version(
+        settings=settings,
+        application_version=application_version,
+    )
+
     recording = record_photo_workflow_action(
         settings=settings,
         source_path=source_path,
         output_path=output_path,
         action="export",
         application=DIGIKAM_APPLICATION,
-        application_version=application_version,
+        application_version=resolved_version,
         description=description,
         metadata=metadata,
     )

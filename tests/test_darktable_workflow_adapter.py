@@ -247,3 +247,93 @@ def test_darktable_recording_failure_is_preserved(
     assert result.errors == [
         "Source file is not the current provenance chain tip"
     ]
+
+
+def test_darktable_edit_detects_application_version(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.services.workflow_application_context import (
+        WorkflowApplicationContext,
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.services.darktable_workflow_adapter."
+        "resolve_darktable_context",
+        lambda settings: WorkflowApplicationContext(
+            key="darktable",
+            application="darktable",
+            available=True,
+            version="this is darktable 5.6.0",
+        ),
+    )
+
+    def record_action(**kwargs):
+        called.append(kwargs)
+
+        return _recording(
+            source_path=kwargs["source_path"],
+            output_path=kwargs["output_path"],
+            event_type=ProvenanceEventType.EDIT,
+        )
+
+    monkeypatch.setattr(
+        "mps.services.darktable_workflow_adapter."
+        "record_photo_workflow_action",
+        record_action,
+    )
+
+    result = record_darktable_edit(
+        settings=_settings(tmp_path),
+        source_path=tmp_path / "DSC0001.ARW",
+        output_path=tmp_path / "DSC0001_master.tif",
+    )
+
+    assert result.recorded is True
+    assert (
+        called[0]["application_version"]
+        == "this is darktable 5.6.0"
+    )
+
+
+def test_darktable_explicit_version_skips_detection(
+    tmp_path,
+    monkeypatch,
+):
+    detection_called = []
+
+    monkeypatch.setattr(
+        "mps.services.darktable_workflow_adapter."
+        "resolve_darktable_context",
+        lambda settings: detection_called.append(settings),
+    )
+
+    called = []
+
+    def record_action(**kwargs):
+        called.append(kwargs)
+
+        return _recording(
+            source_path=kwargs["source_path"],
+            output_path=kwargs["output_path"],
+            event_type=ProvenanceEventType.EXPORT,
+        )
+
+    monkeypatch.setattr(
+        "mps.services.darktable_workflow_adapter."
+        "record_photo_workflow_action",
+        record_action,
+    )
+
+    result = record_darktable_export(
+        settings=_settings(tmp_path),
+        source_path=tmp_path / "DSC0001_master.tif",
+        output_path=tmp_path / "DSC0001_web.jpg",
+        application_version="5.6.0",
+    )
+
+    assert result.recorded is True
+    assert detection_called == []
+    assert called[0]["application_version"] == "5.6.0"

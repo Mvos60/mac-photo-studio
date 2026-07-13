@@ -207,3 +207,93 @@ def test_digikam_recording_failure_is_preserved(
     assert result.errors == [
         "Source file is not the current provenance chain tip"
     ]
+
+
+def test_digikam_derivative_detects_application_version(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.services.workflow_application_context import (
+        WorkflowApplicationContext,
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.services.digikam_workflow_adapter."
+        "resolve_digikam_context",
+        lambda settings: WorkflowApplicationContext(
+            key="digikam",
+            application="digiKam",
+            available=True,
+            version="digiKam 9.1.0",
+        ),
+    )
+
+    def record_action(**kwargs):
+        called.append(kwargs)
+
+        return _recording(
+            source_path=kwargs["source_path"],
+            output_path=kwargs["output_path"],
+            event_type=ProvenanceEventType.DERIVATIVE,
+        )
+
+    monkeypatch.setattr(
+        "mps.services.digikam_workflow_adapter."
+        "record_photo_workflow_action",
+        record_action,
+    )
+
+    result = record_digikam_derivative(
+        settings=_settings(tmp_path),
+        source_path=tmp_path / "DSC0001.JPG",
+        output_path=tmp_path / "DSC0001_copy.JPG",
+    )
+
+    assert result.recorded is True
+    assert (
+        called[0]["application_version"]
+        == "digiKam 9.1.0"
+    )
+
+
+def test_digikam_explicit_version_skips_detection(
+    tmp_path,
+    monkeypatch,
+):
+    detection_called = []
+
+    monkeypatch.setattr(
+        "mps.services.digikam_workflow_adapter."
+        "resolve_digikam_context",
+        lambda settings: detection_called.append(settings),
+    )
+
+    called = []
+
+    def record_action(**kwargs):
+        called.append(kwargs)
+
+        return _recording(
+            source_path=kwargs["source_path"],
+            output_path=kwargs["output_path"],
+            event_type=ProvenanceEventType.EXPORT,
+        )
+
+    monkeypatch.setattr(
+        "mps.services.digikam_workflow_adapter."
+        "record_photo_workflow_action",
+        record_action,
+    )
+
+    result = record_digikam_export(
+        settings=_settings(tmp_path),
+        source_path=tmp_path / "DSC0001.JPG",
+        output_path=tmp_path / "DSC0001_export.JPG",
+        application_version="9.1.0",
+    )
+
+    assert result.recorded is True
+    assert detection_called == []
+    assert called[0]["application_version"] == "9.1.0"
