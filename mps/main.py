@@ -13,6 +13,9 @@ from mps.logger import configure_logging
 from mps.services.camera_identifier import identify_camera_model
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.cli_output import print_card_summary, print_decision_preview
+from mps.services.digikam_darktable_handoff import (
+    handoff_digikam_photo_to_darktable,
+)
 from mps.services.health import run_health_checks
 from mps.services.import_engine import run_import
 from mps.services.import_planner import create_import_decision, create_import_plan
@@ -456,6 +459,36 @@ def print_copy_one(source: str, destination: str) -> int:
     return 0 if result.success else 1
 
 
+def print_digikam_darktable_handoff(
+    photo_path: str,
+) -> int:
+    settings = load_settings()
+
+    result = handoff_digikam_photo_to_darktable(
+        settings=settings,
+        photo_path=photo_path,
+    )
+
+    print("Mac Photo Studio digiKam → darktable Handoff")
+    print("=" * 46)
+    print(f"Photo:         {result.photo_path}")
+    print()
+
+    if result.handed_off:
+        print("Status:        LAUNCHED")
+        print(
+            "The trusted photo was handed off to darktable."
+        )
+        return 0
+
+    print("Status:        NOT LAUNCHED")
+
+    for error in result.errors:
+        print(f"Reason:        {error}")
+
+    return 1
+
+
 def print_application_workflow_action(
     *,
     application: str,
@@ -727,6 +760,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import":
             return run_interactive_import_command()
+        if args.command == "digikam-darktable":
+            if len(args.command_args) != 1:
+                parser.error(
+                    "digikam-darktable requires exactly one PHOTO path"
+                )
+
+            return print_digikam_darktable_handoff(
+                args.command_args[0]
+            )
+
         workflow_commands = {
             "digikam-derivative": ("digikam", "derivative"),
             "digikam-export": ("digikam", "export"),
