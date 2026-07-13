@@ -12,3 +12,7 @@ venv/
 
 # Editor
 .vscode/
+
+# Local development and release backups
+.mps_release_backups/
+.sprint_*_backup/
