@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.models.card import CardScanResult
+from mps.services.media_path_policy import media_files
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -17,30 +18,47 @@ def format_bytes(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def _extensions(settings: Settings, key: str) -> set[str]:
-    return {str(ext).lower().lstrip(".") for ext in settings.get(key, [])}
+def _extensions(
+    settings: Settings,
+    key: str,
+) -> set[str]:
+    return {
+        str(ext).lower().lstrip(".")
+        for ext in settings.get(key, [])
+    }
 
 
-def _candidate_roots(settings: Settings) -> list[Path]:
+def _candidate_roots(
+    settings: Settings,
+) -> list[Path]:
     roots: list[Path] = []
+
     for item in settings.get("media.scan_roots", []):
         root = Path(item).expanduser()
+
         if root.exists():
             roots.append(root)
+
     return roots
 
 
-def _find_dcim(root: Path) -> Path | None:
+def _find_dcim(
+    root: Path,
+) -> Path | None:
     if root.name.upper() == "DCIM":
         return root
 
     direct = root / "DCIM"
+
     if direct.exists() and direct.is_dir():
         return direct
 
     try:
         for child in root.iterdir():
-            if child.is_dir() and child.name.upper() == "DCIM":
+            if (
+                child.is_dir()
+                and child.name.upper() == "DCIM"
+            ):
                 return child
     except PermissionError:
         return None
@@ -48,11 +66,26 @@ def _find_dcim(root: Path) -> Path | None:
     return None
 
 
-def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
-    raw_exts = _extensions(settings, "media.raw_extensions")
-    jpg_exts = _extensions(settings, "media.jpeg_extensions")
-    heif_exts = _extensions(settings, "media.heif_extensions")
-    video_exts = _extensions(settings, "media.video_extensions")
+def _scan_photo_root(
+    root: Path,
+    settings: Settings,
+) -> CardScanResult:
+    raw_exts = _extensions(
+        settings,
+        "media.raw_extensions",
+    )
+    jpg_exts = _extensions(
+        settings,
+        "media.jpeg_extensions",
+    )
+    heif_exts = _extensions(
+        settings,
+        "media.heif_extensions",
+    )
+    video_exts = _extensions(
+        settings,
+        "media.video_extensions",
+    )
 
     dcim = _find_dcim(root)
     scan_root = dcim or root
@@ -63,13 +96,11 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
     video_count = 0
     other_count = 0
     total_size = 0
+
     raw_stems: set[str] = set()
     jpeg_stems: set[str] = set()
 
-    try:
-        files = [p for p in scan_root.rglob("*") if p.is_file()]
-    except PermissionError:
-        files = []
+    files = media_files(scan_root)
 
     for file in files:
         ext = file.suffix.lower().lstrip(".")
@@ -92,9 +123,15 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
         else:
             other_count += 1
 
-    pair_count = len(raw_stems & jpeg_stems)
-    orphan_raw_count = len(raw_stems - jpeg_stems)
-    orphan_jpeg_count = len(jpeg_stems - raw_stems)
+    pair_count = len(
+        raw_stems & jpeg_stems
+    )
+    orphan_raw_count = len(
+        raw_stems - jpeg_stems
+    )
+    orphan_jpeg_count = len(
+        jpeg_stems - raw_stems
+    )
 
     return CardScanResult(
         root=root,
@@ -111,7 +148,9 @@ def _scan_photo_root(root: Path, settings: Settings) -> CardScanResult:
     )
 
 
-def scan_cards(settings: Settings) -> list[CardScanResult]:
+def scan_cards(
+    settings: Settings,
+) -> list[CardScanResult]:
     """Scan configured removable-media roots.
 
     This operation is strictly read-only.
@@ -121,27 +160,46 @@ def scan_cards(settings: Settings) -> list[CardScanResult]:
 
     for base in _candidate_roots(settings):
         try:
-            children = [p for p in base.iterdir() if p.is_dir()]
+            children = [
+                path
+                for path in base.iterdir()
+                if path.is_dir()
+            ]
         except PermissionError:
             continue
 
         for child in children:
             resolved = child.resolve()
+
             if resolved in seen:
                 continue
+
             seen.add(resolved)
 
-            result = _scan_photo_root(child, settings)
-            if result.dcim_path or result.has_photos:
+            result = _scan_photo_root(
+                child,
+                settings,
+            )
+
+            if (
+                result.dcim_path
+                or result.has_photos
+            ):
                 results.append(result)
 
     return results
 
 
-def scan_path(path: Path, settings: Settings) -> CardScanResult:
+def scan_path(
+    path: Path,
+    settings: Settings,
+) -> CardScanResult:
     """Analyze one explicit folder path.
 
     This is useful for development and testing when no SD card is inserted.
     The operation is read-only.
     """
-    return _scan_photo_root(path.expanduser(), settings)
+    return _scan_photo_root(
+        path.expanduser(),
+        settings,
+    )

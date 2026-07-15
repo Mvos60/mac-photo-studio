@@ -10,6 +10,7 @@ from mps.services.imported_photo_registry import (
     file_sha256,
     load_imported_photo_registry,
 )
+from mps.services.media_path_policy import media_files
 
 
 def _extensions(
@@ -41,18 +42,14 @@ def _source_files(
     for source in selection.sources:
         scan_root = source.dcim_path or source.root
 
-        try:
-            source_files = sorted(
-                path
-                for path in scan_root.rglob("*")
-                if (
-                    path.is_file()
-                    and path.suffix.lower().lstrip(".")
-                    in extensions
-                )
+        source_files = [
+            path
+            for path in media_files(scan_root)
+            if (
+                path.suffix.lower().lstrip(".")
+                in extensions
             )
-        except PermissionError:
-            source_files = []
+        ]
 
         files.extend(source_files)
 

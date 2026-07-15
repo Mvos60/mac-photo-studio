@@ -366,3 +366,59 @@ def test_only_new_files_are_planned_when_card_is_reused(
         plan.decision.copy_operations[0].destination
         == plan.destination / "DSC0002.ARW"
     )
+
+
+def test_trash_photo_files_are_not_planned(
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+
+    real_file = _write_photo(
+        root,
+        "DSC0001.ARW",
+        b"real raw",
+    )
+
+    trash_directory = (
+        root
+        / "DCIM"
+        / ".Trash-1000"
+        / "files"
+    )
+    trash_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    (
+        trash_directory / "DSC0002.ARW"
+    ).write_bytes(b"trash raw")
+
+    (
+        trash_directory / "DSC0002.JPG"
+    ).write_bytes(b"trash jpg")
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(
+            sources=[
+                _card(
+                    root,
+                    raw=2,
+                    jpeg=1,
+                ),
+            ]
+        ),
+        _settings(tmp_path),
+        year=2026,
+        project="Adriatic",
+        day="03_Slovenia",
+    )
+
+    assert plan.total_files == 1
+    assert len(
+        plan.decision.copy_operations
+    ) == 1
+    assert (
+        plan.decision.copy_operations[0].source
+        == real_file
+    )
