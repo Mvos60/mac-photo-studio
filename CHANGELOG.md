@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased — 0.2.1
+
+Added:
+
+- Global imported-photo registry built from provenance certificate indexes
+- Cross-library SHA-256 duplicate-import detection
+- Shared removable-media path exclusion policy
+- Read-only provenance-aware culling analyzer
+- Culling candidate RAW identity verification
+- Photographer-readable culling analysis report
+- `--analyze-culling`
+- Explicit confirmed culling workflow
+- `--confirm-culling`
+- Verified orphan RAW quarantine
+- Provenance evidence quarantine for confirmed culled RAW/JPG pairs
+- Active certificate-index cleanup after confirmed culling
+- Active import-manifest cleanup after confirmed culling
+- End-to-end culling workflow integration test
+
+Changed:
+
+- Previously imported source files are skipped even when a card is presented again for a different project or session.
+- `.Trash*`, `$RECYCLE.BIN` and `System Volume Information` directories are ignored during removable-media scanning and import planning.
+- Confirmed photographer culling removes the affected RAW/JPG pair from the active import record while preserving recoverable quarantine evidence.
+
+Verified:
+
+- 462 automated tests passed
+- Cross-library card-reuse regression test passed
+- Camera-card trash exclusion tests passed
+- Real Sony A7 III RAW/JPG culling workflow passed with `MAC02592`
+
+Known development items:
+
+- Interrupted-session Resume / Start new / Cancel workflow
+- Year/month/date-description destination layout
+- Culling quarantine restore and permanent purge commands
+
 ## 0.2.0
 
 Added:

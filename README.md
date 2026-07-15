@@ -1,9 +1,10 @@
 # Mac Photo Studio
 
-**Version:** 0.2.0  
+**Released version:** 0.2.0  
+**Current development:** 0.2.1  
 **Target platform:** Ubuntu/Linux
 
-Mac Photo Studio performs verified photographic imports while working alongside digiKam and darktable.
+Mac Photo Studio is a verified photographic import and provenance workflow for photographers using digiKam and darktable.
 
 It does not replace digiKam's catalogue or darktable's RAW-development workflow.
 
@@ -12,7 +13,8 @@ It does not replace digiKam's catalogue or darktable's RAW-development workflow.
 ```text
 Camera media
 → Mac Photo Studio verified import
-→ digiKam catalogue
+→ digiKam catalogue and culling
+→ Mac Photo Studio provenance-aware culling analysis
 → trusted handoff to darktable
 → recorded edit
 → verified export
@@ -22,44 +24,49 @@ Camera media
 
 | Application | Responsibility |
 |---|---|
-| Mac Photo Studio | Verified import, integrity checks, provenance and workflow handoffs |
-| digiKam | Catalogue, albums, tags, ratings, searches and faces |
+| Mac Photo Studio | Verified import, integrity checks, provenance, culling safety and workflow handoffs |
+| digiKam | Catalogue, albums, tags, ratings, searches, faces and visual culling |
 | darktable | RAW development and exports |
 
 ## Main capabilities
 
-- RAW and JPEG card discovery
+- RAW and JPEG camera-card discovery
 - RAW/JPEG pairing
 - Year/project/day destination layout
 - SHA-256 verified copying
+- Cross-library duplicate-import prevention
+- Removable-media trash and system-directory exclusion
 - Import manifests and logs
-- Photo provenance certificates
+- Photo Provenance Certificates
+- Provenance certificate index
 - Provenance event history
+- Hash-linked photographic lineage
 - Interrupted-session resume protection
 - Post-import verification
 - Source-card reconciliation
-- digiKam handoff
+- digiKam workflow handoff
 - Trusted-photo handoff to darktable
 - Recorded darktable edits and exports
 - Final exported-photo verification
+- Read-only provenance-aware culling analysis
+- Explicit confirmed culling
+- Verified orphan RAW quarantine
+- Active manifest and provenance cleanup after confirmed culling
 
 ## Installation
+
+From a checked-out release or source directory:
 
 ```bash
 bash install.sh
 source ~/.bashrc
 ```
 
-## Health check
+Verify the installation:
 
 ```bash
+mac-photo-studio --version
 mac-photo-studio --health
-```
-
-## Read-only card scan
-
-```bash
-mac-photo-studio --scan-cards
 ```
 
 ## Interactive import
@@ -68,7 +75,7 @@ mac-photo-studio --scan-cards
 mac-photo-studio import
 ```
 
-Imported photographs use this layout:
+Mac Photo Studio 0.2.0 uses:
 
 ```text
 Photos_Master/
@@ -76,6 +83,49 @@ Photos_Master/
     └── PROJECT/
         └── DAY_SESSION/
 ```
+
+A calendar-oriented year/month/date-description layout is planned for 0.2.1 development.
+
+## Read-only card scan
+
+```bash
+mac-photo-studio --scan-cards
+```
+
+## Analyze culling
+
+After deliberately deleting rejected JPG photographs in digiKam or darktable:
+
+```bash
+mac-photo-studio --analyze-culling \
+  "/path/to/import-session"
+```
+
+The analysis is read-only.
+
+A missing imported JPG is correlated with its matching RAW by original camera filename stem. The surviving RAW must still match its recorded SHA-256 identity before it is reported as a verified culling candidate.
+
+## Confirm a culling candidate
+
+```bash
+mac-photo-studio --confirm-culling \
+  "/path/to/import-session" \
+  PHOTO_STEM
+```
+
+Example:
+
+```bash
+mac-photo-studio --confirm-culling \
+  "$HOME/Photos_Master/2026/Adriatic/03_Slovenia" \
+  DSC01234
+```
+
+Exact confirmation with `CULL` is required.
+
+The verified orphan RAW and its provenance evidence are moved to `.mps_quarantine`. The RAW/JPG pair is removed from the active import manifest and active certificate index.
+
+No immediate permanent RAW deletion is performed.
 
 ## Verify a managed photograph
 
@@ -115,16 +165,38 @@ mac-photo-studio darktable-complete-export \
 
 Mac Photo Studio does not automatically:
 
-- delete source photographs
-- rename source photographs
-- move source photographs
+- delete camera-card source photographs
+- rename camera-card source photographs
+- move camera-card source photographs
 - format memory cards
+- permanently delete culled RAW files
 
-Source media remains read-only.
+Camera source media remains read-only.
+
+Confirmed culling requires explicit photographer action and quarantines verified orphan RAW files before any future permanent disposal.
 
 ## Release status
 
-- Version 0.2.0
-- 421 automated tests passing
-- Real-world laptop smoke test passed
-- Verified ingest, edit and export workflow passed
+### 0.2.0 Final
+
+- 421 automated tests passed
+- verified RAW/JPEG import
+- provenance certificate and event-chain workflow
+- trusted digiKam/darktable workflow integration
+- final photograph verification
+
+### 0.2.1 development
+
+Current development work includes:
+
+- cross-library duplicate-import prevention
+- camera-card trash/system directory filtering
+- provenance-aware culling analysis
+- verified orphan RAW quarantine
+- active provenance and manifest cleanup after confirmed culling
+
+Current development test suite:
+
+```text
+462 passed
+```
