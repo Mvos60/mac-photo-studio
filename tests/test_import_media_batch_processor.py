@@ -224,3 +224,133 @@ def test_empty_batch_is_not_registered(tmp_path: Path):
     assert result.copied == 0
     assert result.media_registered is False
     assert session.sources == []
+
+
+def test_reused_cards_import_only_new_files_into_new_library(
+    tmp_path: Path,
+):
+    settings = _settings(tmp_path)
+
+    raw_card = tmp_path / "raw-card"
+    jpeg_card = tmp_path / "jpeg-card"
+
+    _write_photo(
+        raw_card,
+        "DSC0001.ARW",
+        b"raw-photo-1",
+    )
+    _write_photo(
+        raw_card,
+        "DSC0002.ARW",
+        b"raw-photo-2",
+    )
+    _write_photo(
+        raw_card,
+        "DSC0003.ARW",
+        b"raw-photo-3",
+    )
+
+    _write_photo(
+        jpeg_card,
+        "DSC0001.JPG",
+        b"jpeg-photo-1",
+    )
+    _write_photo(
+        jpeg_card,
+        "DSC0002.JPG",
+        b"jpeg-photo-2",
+    )
+    _write_photo(
+        jpeg_card,
+        "DSC0003.JPG",
+        b"jpeg-photo-3",
+    )
+
+    first_session = ImportMediaSession()
+
+    first = process_import_media_batch(
+        ImportMediaSelection(
+            sources=[
+                _card(raw_card, raw=3),
+                _card(jpeg_card, jpeg=3),
+            ]
+        ),
+        first_session,
+        settings,
+        year=2026,
+        project="FirstLibrary",
+        day="FirstSession",
+        session_id="MPS-SESSION-FIRST",
+    )
+
+    assert first.success
+    assert first.copied == 6
+
+    _write_photo(
+        raw_card,
+        "DSC0004.ARW",
+        b"raw-photo-4",
+    )
+    _write_photo(
+        jpeg_card,
+        "DSC0004.JPG",
+        b"jpeg-photo-4",
+    )
+
+    second_session = ImportMediaSession()
+
+    second = process_import_media_batch(
+        ImportMediaSelection(
+            sources=[
+                _card(raw_card, raw=4),
+                _card(jpeg_card, jpeg=4),
+            ]
+        ),
+        second_session,
+        settings,
+        year=2026,
+        project="SecondLibrary",
+        day="SecondSession",
+        session_id="MPS-SESSION-SECOND",
+    )
+
+    assert second.success
+    assert second.copied == 2
+    assert second.failed == 0
+    assert second.media_registered is True
+
+    second_destination = (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "SecondLibrary"
+        / "SecondSession"
+    )
+
+    assert {
+        path.name
+        for path in second_destination.iterdir()
+        if path.suffix in {".ARW", ".JPG"}
+    } == {
+        "DSC0004.ARW",
+        "DSC0004.JPG",
+    }
+
+    assert not (
+        second_destination / "DSC0001.ARW"
+    ).exists()
+    assert not (
+        second_destination / "DSC0001.JPG"
+    ).exists()
+    assert not (
+        second_destination / "DSC0002.ARW"
+    ).exists()
+    assert not (
+        second_destination / "DSC0002.JPG"
+    ).exists()
+    assert not (
+        second_destination / "DSC0003.ARW"
+    ).exists()
+    assert not (
+        second_destination / "DSC0003.JPG"
+    ).exists()

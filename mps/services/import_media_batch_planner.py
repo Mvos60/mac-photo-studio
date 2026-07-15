@@ -6,6 +6,10 @@ from mps.config import Settings
 from mps.models.import_decision import CopyOperation, ImportDecision
 from mps.models.import_media_batch_plan import ImportMediaBatchPlan
 from mps.models.import_media_selection import ImportMediaSelection
+from mps.services.imported_photo_registry import (
+    file_sha256,
+    load_imported_photo_registry,
+)
 
 
 def _extensions(
@@ -55,6 +59,42 @@ def _source_files(
     return files
 
 
+def _photos_root(
+    settings: Settings,
+) -> Path:
+    return Path(
+        settings.get(
+            "paths.photos_root",
+            "~/Photos_Master",
+        )
+    ).expanduser()
+
+
+def _new_source_files(
+    source_files: list[Path],
+    photos_root: Path,
+) -> list[Path]:
+    registry = load_imported_photo_registry(
+        photos_root
+    )
+
+    new_files: list[Path] = []
+
+    for source in source_files:
+        try:
+            source_hash = file_sha256(source)
+        except OSError:
+            new_files.append(source)
+            continue
+
+        if registry.contains_hash(source_hash):
+            continue
+
+        new_files.append(source)
+
+    return new_files
+
+
 def media_import_destination(
     settings: Settings,
     *,
@@ -62,15 +102,8 @@ def media_import_destination(
     project: str,
     day: str,
 ) -> Path:
-    photos_root = Path(
-        settings.get(
-            "paths.photos_root",
-            "~/Photos_Master",
-        )
-    ).expanduser()
-
     return (
-        photos_root
+        _photos_root(settings)
         / str(year)
         / project
         / day
@@ -85,6 +118,8 @@ def create_media_batch_plan(
     project: str,
     day: str,
 ) -> ImportMediaBatchPlan:
+    photos_root = _photos_root(settings)
+
     destination = media_import_destination(
         settings,
         year=year,
@@ -92,9 +127,14 @@ def create_media_batch_plan(
         day=day,
     )
 
-    source_files = _source_files(
+    discovered_files = _source_files(
         selection,
         settings,
+    )
+
+    source_files = _new_source_files(
+        discovered_files,
+        photos_root,
     )
 
     copy_operations = [

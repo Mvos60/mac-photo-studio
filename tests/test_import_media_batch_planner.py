@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 from mps.config import Settings
@@ -57,6 +59,53 @@ def _write_photo(
     path.write_bytes(content)
 
     return path
+
+
+def _write_imported_hash(
+    photos_root: Path,
+    content: bytes,
+) -> None:
+    import_root = (
+        photos_root
+        / "2026"
+        / "Existing"
+        / "Session"
+    )
+    provenance = import_root / "provenance"
+    provenance.mkdir(parents=True, exist_ok=True)
+
+    known_hash = hashlib.sha256(
+        content
+    ).hexdigest()
+
+    data = {
+        "entries": [
+            {
+                "camera_model": "ILCE-7M3",
+                "certificate_id": "MPS-CERT-1",
+                "certificate_path": (
+                    str(
+                        provenance
+                        / "MPS-CERT-1.json"
+                    )
+                ),
+                "created_at": "2026-07-15T08:00:00+00:00",
+                "destination_path": str(
+                    import_root / "DSC0001.ARW"
+                ),
+                "provenance_id": "MPS-PROV-1",
+                "session_id": "MPS-SESSION-1",
+                "sha256": known_hash,
+            }
+        ]
+    }
+
+    (
+        provenance / "certificate_index.json"
+    ).write_text(
+        json.dumps(data),
+        encoding="utf-8",
+    )
 
 
 def test_plan_single_raw_card(tmp_path: Path):
@@ -236,3 +285,84 @@ def test_planning_is_read_only(tmp_path: Path):
     )
 
     assert not plan.destination.exists()
+
+
+def test_previously_imported_file_is_not_planned(
+    tmp_path: Path,
+):
+    photos_root = tmp_path / "Photos_Master"
+    root = tmp_path / "card"
+
+    _write_imported_hash(
+        photos_root,
+        b"already-imported",
+    )
+
+    _write_photo(
+        root,
+        "DSC0001.ARW",
+        b"already-imported",
+    )
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(
+            sources=[
+                _card(root, raw=1),
+            ]
+        ),
+        _settings(tmp_path),
+        year=2026,
+        project="NewProject",
+        day="NewSession",
+    )
+
+    assert plan.total_files == 0
+    assert plan.estimated_size_bytes == 0
+    assert plan.decision.copy_operations == []
+    assert plan.decision.warnings == []
+
+
+def test_only_new_files_are_planned_when_card_is_reused(
+    tmp_path: Path,
+):
+    photos_root = tmp_path / "Photos_Master"
+    root = tmp_path / "card"
+
+    _write_imported_hash(
+        photos_root,
+        b"old-photo",
+    )
+
+    _write_photo(
+        root,
+        "DSC0001.ARW",
+        b"old-photo",
+    )
+    new_file = _write_photo(
+        root,
+        "DSC0002.ARW",
+        b"new-photo",
+    )
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(
+            sources=[
+                _card(root, raw=2),
+            ]
+        ),
+        _settings(tmp_path),
+        year=2026,
+        project="NewProject",
+        day="NewSession",
+    )
+
+    assert plan.total_files == 1
+    assert len(plan.decision.copy_operations) == 1
+    assert (
+        plan.decision.copy_operations[0].source
+        == new_file
+    )
+    assert (
+        plan.decision.copy_operations[0].destination
+        == plan.destination / "DSC0002.ARW"
+    )
