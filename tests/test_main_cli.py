@@ -1315,3 +1315,337 @@ def test_cli_import_reports_digikam_launch_failure(
     assert "digiKam application was not found" in output
 
 
+
+
+def test_cli_analyze_culling_prints_read_only_report(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.culling_analyzer import (
+        CullingAnalysis,
+        MissingImportedJpeg,
+    )
+
+    import_root = tmp_path / "Session"
+    raw = import_root / "DSC0001.ARW"
+    jpeg = import_root / "DSC0001.JPG"
+
+    import_root.mkdir()
+    raw.write_bytes(b"raw")
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.analyze_culling",
+        lambda root, settings: CullingAnalysis(
+            import_root=Path(root),
+            missing_jpegs=[
+                MissingImportedJpeg(
+                    stem="DSC0001",
+                    jpeg_path=jpeg,
+                    jpeg_provenance_id=(
+                        "MPS-PROV-JPEG-1"
+                    ),
+                    jpeg_sha256="jpeg-hash",
+                    raw_path=raw,
+                    raw_provenance_id=(
+                        "MPS-PROV-RAW-1"
+                    ),
+                    raw_sha256="raw-hash",
+                    raw_hash_matches=True,
+                ),
+            ],
+        ),
+    )
+
+    exit_code = main(
+        [
+            "--analyze-culling",
+            str(import_root),
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Culling Analysis" in output
+    assert "Missing imported JPGs : 1" in output
+    assert "Verified orphan RAWs  : 1" in output
+    assert "DSC0001" in output
+    assert "CULL CANDIDATE" in output
+    assert (
+        "Read-only analysis. No files were changed."
+        in output
+    )
+
+
+def test_cli_analyze_culling_passes_settings_to_analyzer(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.services.culling_analyzer import (
+        CullingAnalysis,
+    )
+
+    settings = _settings(tmp_path)
+    import_root = tmp_path / "Session"
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+
+    def analyze(root, received_settings):
+        called.append(
+            (
+                root,
+                received_settings,
+            )
+        )
+
+        return CullingAnalysis(
+            import_root=Path(root),
+            missing_jpegs=[],
+        )
+
+    monkeypatch.setattr(
+        "mps.main.analyze_culling",
+        analyze,
+    )
+
+    exit_code = main(
+        [
+            "--analyze-culling",
+            str(import_root),
+        ]
+    )
+
+    assert exit_code == 0
+    assert called == [
+        (
+            import_root,
+            settings,
+        )
+    ]
+
+
+def test_cli_help_lists_analyze_culling(
+    capsys,
+):
+    exit_code = main([])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert (
+        "mac-photo-studio --analyze-culling "
+        "<import-session-folder>"
+        in output
+    )
+
+
+def test_cli_confirm_culling_requires_exact_confirmation(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.culling_analyzer import (
+        CullingAnalysis,
+        MissingImportedJpeg,
+    )
+
+    import_root = tmp_path / "Session"
+    raw = import_root / "DSC0001.ARW"
+    jpeg = import_root / "DSC0001.JPG"
+
+    import_root.mkdir()
+    raw.write_bytes(b"raw")
+
+    candidate = MissingImportedJpeg(
+        stem="DSC0001",
+        jpeg_path=jpeg,
+        jpeg_provenance_id="MPS-PROV-JPEG-1",
+        jpeg_sha256="jpeg-hash",
+        raw_path=raw,
+        raw_provenance_id="MPS-PROV-RAW-1",
+        raw_sha256="raw-hash",
+        raw_hash_matches=True,
+    )
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.analyze_culling",
+        lambda root, settings: CullingAnalysis(
+            import_root=Path(root),
+            missing_jpegs=[candidate],
+        ),
+    )
+
+    called = []
+
+    monkeypatch.setattr(
+        "mps.main.execute_culling_candidate",
+        lambda root, item: called.append(
+            (root, item)
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "no",
+    )
+
+    exit_code = main(
+        [
+            "--confirm-culling",
+            str(import_root),
+            "DSC0001",
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert called == []
+    assert "Culling cancelled" in output
+
+
+def test_cli_confirm_culling_executes_verified_candidate(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.culling_analyzer import (
+        CullingAnalysis,
+        MissingImportedJpeg,
+    )
+    from mps.services.culling_executor import (
+        CullingExecutionResult,
+    )
+
+    import_root = tmp_path / "Session"
+    raw = import_root / "DSC0001.ARW"
+    jpeg = import_root / "DSC0001.JPG"
+
+    import_root.mkdir()
+    raw.write_bytes(b"raw")
+
+    candidate = MissingImportedJpeg(
+        stem="DSC0001",
+        jpeg_path=jpeg,
+        jpeg_provenance_id="MPS-PROV-JPEG-1",
+        jpeg_sha256="jpeg-hash",
+        raw_path=raw,
+        raw_provenance_id="MPS-PROV-RAW-1",
+        raw_sha256="raw-hash",
+        raw_hash_matches=True,
+    )
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.analyze_culling",
+        lambda root, settings: CullingAnalysis(
+            import_root=Path(root),
+            missing_jpegs=[candidate],
+        ),
+    )
+
+    called = []
+
+    def execute(root, item):
+        called.append((root, item))
+
+        return CullingExecutionResult(
+            success=True,
+            stem=item.stem,
+            raw_quarantine_path=(
+                Path(root)
+                / ".mps_quarantine"
+                / "culling"
+                / item.stem
+                / "DSC0001.ARW"
+            ),
+            removed_manifest_entries=2,
+            removed_index_entries=2,
+            quarantined_provenance_items=4,
+            message=(
+                "Culling candidate quarantined successfully"
+            ),
+        )
+
+    monkeypatch.setattr(
+        "mps.main.execute_culling_candidate",
+        execute,
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "CULL",
+    )
+
+    exit_code = main(
+        [
+            "--confirm-culling",
+            str(import_root),
+            "DSC0001",
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert called == [
+        (
+            import_root,
+            candidate,
+        )
+    ]
+    assert "Status                      : QUARANTINED" in output
+    assert "Manifest entries removed    : 2" in output
+    assert "Certificate entries removed : 2" in output
+
+
+def test_cli_confirm_culling_rejects_unknown_candidate(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.services.culling_analyzer import (
+        CullingAnalysis,
+    )
+
+    import_root = tmp_path / "Session"
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.analyze_culling",
+        lambda root, settings: CullingAnalysis(
+            import_root=Path(root),
+            missing_jpegs=[],
+        ),
+    )
+
+    exit_code = main(
+        [
+            "--confirm-culling",
+            str(import_root),
+            "UNKNOWN",
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "NOT A VERIFIED CULLING CANDIDATE" in output
+    assert "No files were changed." in output

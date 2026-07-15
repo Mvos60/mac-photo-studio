@@ -13,6 +13,9 @@ from mps.logger import configure_logging
 from mps.services.camera_identifier import identify_camera_model
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.cli_output import print_card_summary, print_decision_preview
+from mps.services.culling_analyzer import analyze_culling
+from mps.services.culling_executor import execute_culling_candidate
+from mps.services.culling_report import build_culling_report
 from mps.services.darktable_export_completion import (
     complete_darktable_export,
 )
@@ -110,6 +113,109 @@ def print_scan_path(path_text: str) -> int:
     print()
     print("Read-only scan complete. No files were modified.")
     return 0
+
+
+def print_analyze_culling(import_root: str) -> int:
+    settings = load_settings()
+
+    analysis = analyze_culling(
+        Path(import_root),
+        settings,
+    )
+
+    print(build_culling_report(analysis))
+    return 0
+
+
+def print_confirm_culling(
+    import_root: str,
+    stem: str,
+) -> int:
+    settings = load_settings()
+    root = Path(import_root).expanduser()
+
+    analysis = analyze_culling(
+        root,
+        settings,
+    )
+
+    candidates = [
+        candidate
+        for candidate in analysis.orphan_raw_candidates
+        if candidate.stem == stem
+    ]
+
+    if not candidates:
+        print("Mac Photo Studio Confirm Culling")
+        print("=" * 32)
+        print()
+        print(f"Import root : {root}")
+        print(f"Photo stem  : {stem}")
+        print()
+        print("Status      : NOT A VERIFIED CULLING CANDIDATE")
+        print("No files were changed.")
+        return 1
+
+    candidate = candidates[0]
+
+    print("Mac Photo Studio Confirm Culling")
+    print("=" * 32)
+    print()
+    print(f"Import root : {root}")
+    print(f"Photo stem  : {candidate.stem}")
+    print(f"Missing JPG : {candidate.jpeg_path}")
+    print(f"Verified RAW: {candidate.raw_path}")
+    print()
+    print(
+        "The RAW and active provenance for this "
+        "photographic pair will be moved to quarantine."
+    )
+    print()
+
+    answer = input(
+        "Type CULL to confirm: "
+    ).strip()
+
+    if answer != "CULL":
+        print()
+        print("Culling cancelled. No files were changed.")
+        return 0
+
+    result = execute_culling_candidate(
+        root,
+        candidate,
+    )
+
+    print()
+    print("Culling Result")
+    print("==============")
+    print()
+    print(
+        f"Status                      : "
+        f"{'QUARANTINED' if result.success else 'FAILED'}"
+    )
+    print(
+        f"Manifest entries removed    : "
+        f"{result.removed_manifest_entries}"
+    )
+    print(
+        f"Certificate entries removed : "
+        f"{result.removed_index_entries}"
+    )
+    print(
+        f"Provenance items quarantined : "
+        f"{result.quarantined_provenance_items}"
+    )
+
+    if result.raw_quarantine_path is not None:
+        print(
+            f"RAW quarantine path         : "
+            f"{result.raw_quarantine_path}"
+        )
+
+    print(f"Message                     : {result.message}")
+
+    return 0 if result.success else 1
 
 
 def print_pair_paths(raw_folder: str, jpeg_folder: str) -> int:
@@ -761,6 +867,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--scan-cards", action="store_true")
     parser.add_argument("--scan-path")
+    parser.add_argument("--analyze-culling")
+    parser.add_argument(
+        "--confirm-culling",
+        nargs=2,
+        metavar=("IMPORT_SESSION_FOLDER", "PHOTO_STEM"),
+    )
     parser.add_argument(
         "--pair-paths",
         nargs=2,
@@ -890,6 +1002,15 @@ def main(argv: list[str] | None = None) -> int:
             return print_scan_cards()
         if args.scan_path:
             return print_scan_path(args.scan_path)
+        if args.analyze_culling:
+            return print_analyze_culling(
+                args.analyze_culling
+            )
+        if args.confirm_culling:
+            return print_confirm_culling(
+                args.confirm_culling[0],
+                args.confirm_culling[1],
+            )
         if args.pair_paths:
             return print_pair_paths(
                 args.pair_paths[0],
@@ -938,6 +1059,14 @@ def main(argv: list[str] | None = None) -> int:
         print("  mac-photo-studio --health")
         print("  mac-photo-studio --scan-cards")
         print("  mac-photo-studio --scan-path <folder>")
+        print(
+            "  mac-photo-studio --analyze-culling "
+            "<import-session-folder>"
+        )
+        print(
+            "  mac-photo-studio --confirm-culling "
+            "<import-session-folder> <photo-stem>"
+        )
         print(
             "  mac-photo-studio --pair-paths "
             "<raw-folder> <jpeg-folder>"
