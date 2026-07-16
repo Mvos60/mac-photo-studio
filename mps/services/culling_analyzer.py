@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from mps.config import Settings
@@ -10,6 +11,15 @@ from mps.models.provenance_certificate_index import (
 from mps.services.imported_photo_registry import file_sha256
 from mps.services.provenance_index_paths import index_path
 from mps.services.provenance_index_writer import load_index
+
+
+class CullingCandidateStatus(str, Enum):
+    CULL_CANDIDATE = "cull_candidate"
+    PROVENANCE_CLEANUP_CANDIDATE = (
+        "provenance_cleanup_candidate"
+    )
+    RAW_HASH_MISMATCH = "raw_hash_mismatch"
+    NO_ACTION = "no_action"
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +34,10 @@ class MissingImportedJpeg:
     raw_hash_matches: bool
 
     @property
+    def has_imported_raw(self) -> bool:
+        return self.raw_path is not None
+
+    @property
     def has_surviving_raw(self) -> bool:
         return (
             self.raw_path is not None
@@ -31,11 +45,58 @@ class MissingImportedJpeg:
         )
 
     @property
-    def is_orphan_raw_candidate(self) -> bool:
-        return (
+    def status(self) -> CullingCandidateStatus:
+        if not self.has_imported_raw:
+            return (
+                CullingCandidateStatus
+                .PROVENANCE_CLEANUP_CANDIDATE
+            )
+
+        if (
             self.has_surviving_raw
             and self.raw_hash_matches
+        ):
+            return (
+                CullingCandidateStatus
+                .CULL_CANDIDATE
+            )
+
+        if self.has_surviving_raw:
+            return (
+                CullingCandidateStatus
+                .RAW_HASH_MISMATCH
+            )
+
+        return CullingCandidateStatus.NO_ACTION
+
+    @property
+    def is_orphan_raw_candidate(self) -> bool:
+        return (
+            self.status
+            == CullingCandidateStatus.CULL_CANDIDATE
         )
+
+    @property
+    def is_provenance_cleanup_candidate(
+        self,
+    ) -> bool:
+        return (
+            self.status
+            == (
+                CullingCandidateStatus
+                .PROVENANCE_CLEANUP_CANDIDATE
+            )
+        )
+
+    @property
+    def is_actionable(self) -> bool:
+        return self.status in {
+            CullingCandidateStatus.CULL_CANDIDATE,
+            (
+                CullingCandidateStatus
+                .PROVENANCE_CLEANUP_CANDIDATE
+            ),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +116,22 @@ class CullingAnalysis:
         )
 
     @property
+    def provenance_cleanup_candidate_count(
+        self,
+    ) -> int:
+        return sum(
+            item.is_provenance_cleanup_candidate
+            for item in self.missing_jpegs
+        )
+
+    @property
+    def actionable_candidate_count(self) -> int:
+        return sum(
+            item.is_actionable
+            for item in self.missing_jpegs
+        )
+
+    @property
     def orphan_raw_candidates(
         self,
     ) -> list[MissingImportedJpeg]:
@@ -62,6 +139,26 @@ class CullingAnalysis:
             item
             for item in self.missing_jpegs
             if item.is_orphan_raw_candidate
+        ]
+
+    @property
+    def provenance_cleanup_candidates(
+        self,
+    ) -> list[MissingImportedJpeg]:
+        return [
+            item
+            for item in self.missing_jpegs
+            if item.is_provenance_cleanup_candidate
+        ]
+
+    @property
+    def actionable_candidates(
+        self,
+    ) -> list[MissingImportedJpeg]:
+        return [
+            item
+            for item in self.missing_jpegs
+            if item.is_actionable
         ]
 
 
@@ -85,11 +182,16 @@ def _entries_by_stem(
     entries: list[ProvenanceCertificateIndexEntry],
     extensions: set[str],
 ) -> dict[str, ProvenanceCertificateIndexEntry]:
-    result: dict[str, ProvenanceCertificateIndexEntry] = {}
+    result: dict[
+        str,
+        ProvenanceCertificateIndexEntry,
+    ] = {}
 
     for entry in entries:
         path = _entry_path(entry)
-        extension = path.suffix.lower().lstrip(".")
+        extension = (
+            path.suffix.lower().lstrip(".")
+        )
 
         if extension not in extensions:
             continue
@@ -165,7 +267,9 @@ def analyze_culling(
         jpeg_extensions,
     )
 
-    missing_jpegs: list[MissingImportedJpeg] = []
+    missing_jpegs: list[
+        MissingImportedJpeg
+    ] = []
 
     for stem in sorted(jpeg_entries):
         jpeg_entry = jpeg_entries[stem]
@@ -182,7 +286,9 @@ def analyze_culling(
             raw_sha256 = None
         else:
             raw_path = _entry_path(raw_entry)
-            raw_provenance_id = raw_entry.provenance_id
+            raw_provenance_id = (
+                raw_entry.provenance_id
+            )
             raw_sha256 = raw_entry.sha256
 
         missing_jpegs.append(
@@ -194,11 +300,15 @@ def analyze_culling(
                 ),
                 jpeg_sha256=jpeg_entry.sha256,
                 raw_path=raw_path,
-                raw_provenance_id=raw_provenance_id,
+                raw_provenance_id=(
+                    raw_provenance_id
+                ),
                 raw_sha256=raw_sha256,
-                raw_hash_matches=_raw_hash_matches(
-                    raw_path,
-                    raw_sha256,
+                raw_hash_matches=(
+                    _raw_hash_matches(
+                        raw_path,
+                        raw_sha256,
+                    )
                 ),
             )
         )

@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
-from mps.services.culling_analyzer import MissingImportedJpeg
+from mps.services.culling_analyzer import (
+    CullingCandidateStatus,
+    MissingImportedJpeg,
+)
 from mps.services.imported_photo_registry import file_sha256
 from mps.services.manifest_writer import (
     load_manifest,
@@ -44,49 +47,124 @@ def _quarantine_root(
     )
 
 
-def _provenance_ids(
+def _candidate_provenance_ids(
     candidate: MissingImportedJpeg,
 ) -> set[str]:
-    return {
-        provenance_id
-        for provenance_id in (
+    if (
+        candidate.status
+        == CullingCandidateStatus.CULL_CANDIDATE
+    ):
+        values = (
             candidate.jpeg_provenance_id,
             candidate.raw_provenance_id,
         )
-        if provenance_id is not None
+    elif (
+        candidate.status
+        == (
+            CullingCandidateStatus
+            .PROVENANCE_CLEANUP_CANDIDATE
+        )
+    ):
+        values = (
+            candidate.jpeg_provenance_id,
+        )
+    else:
+        values = ()
+
+    return {
+        value
+        for value in values
+        if value is not None
     }
 
 
-def _destination_paths(
+def _candidate_destination_paths(
     candidate: MissingImportedJpeg,
 ) -> set[Path]:
-    paths = {
-        candidate.jpeg_path,
-    }
+    if (
+        candidate.status
+        == CullingCandidateStatus.CULL_CANDIDATE
+    ):
+        values = [
+            candidate.jpeg_path,
+        ]
 
-    if candidate.raw_path is not None:
-        paths.add(candidate.raw_path)
+        if candidate.raw_path is not None:
+            values.append(candidate.raw_path)
+
+    elif (
+        candidate.status
+        == (
+            CullingCandidateStatus
+            .PROVENANCE_CLEANUP_CANDIDATE
+        )
+    ):
+        values = [
+            candidate.jpeg_path,
+        ]
+
+    else:
+        values = []
 
     return {
         path.expanduser()
-        for path in paths
+        for path in values
     }
+
+
+def _expected_entry_count(
+    candidate: MissingImportedJpeg,
+) -> int:
+    if (
+        candidate.status
+        == CullingCandidateStatus.CULL_CANDIDATE
+    ):
+        return 2
+
+    if (
+        candidate.status
+        == (
+            CullingCandidateStatus
+            .PROVENANCE_CLEANUP_CANDIDATE
+        )
+    ):
+        return 1
+
+    return 0
 
 
 def _verify_candidate(
     candidate: MissingImportedJpeg,
 ) -> str | None:
-    if not candidate.is_orphan_raw_candidate:
-        return "Candidate is not a verified orphan RAW"
+    if candidate.jpeg_path.exists():
+        return "JPG exists again; culling action aborted"
+
+    if (
+        candidate.status
+        == (
+            CullingCandidateStatus
+            .PROVENANCE_CLEANUP_CANDIDATE
+        )
+    ):
+        if candidate.raw_path is not None:
+            return (
+                "JPG-only cleanup candidate unexpectedly "
+                "contains an imported RAW"
+            )
+
+        return None
+
+    if (
+        candidate.status
+        != CullingCandidateStatus.CULL_CANDIDATE
+    ):
+        return "Candidate is not actionable"
 
     if candidate.raw_path is None:
         return "Candidate has no RAW path"
 
     if candidate.raw_sha256 is None:
         return "Candidate has no imported RAW hash"
-
-    if candidate.jpeg_path.exists():
-        return "JPG exists again; culling action aborted"
 
     try:
         current_hash = file_sha256(
@@ -121,6 +199,21 @@ def _move_provenance_item(
     return True
 
 
+def _result_failure(
+    candidate: MissingImportedJpeg,
+    message: str,
+) -> CullingExecutionResult:
+    return CullingExecutionResult(
+        success=False,
+        stem=candidate.stem,
+        raw_quarantine_path=None,
+        removed_manifest_entries=0,
+        removed_index_entries=0,
+        quarantined_provenance_items=0,
+        message=message,
+    )
+
+
 def execute_culling_candidate(
     import_root: str | Path,
     candidate: MissingImportedJpeg,
@@ -132,39 +225,24 @@ def execute_culling_candidate(
     )
 
     if verification_error is not None:
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message=verification_error,
+        return _result_failure(
+            candidate,
+            verification_error,
         )
 
     manifest_file = _manifest_path(root)
     certificate_index_file = index_path(root)
 
     if not manifest_file.exists():
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message="Import manifest is missing",
+        return _result_failure(
+            candidate,
+            "Import manifest is missing",
         )
 
     if not certificate_index_file.exists():
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message="Certificate index is missing",
+        return _result_failure(
+            candidate,
+            "Certificate index is missing",
         )
 
     manifest = load_manifest(manifest_file)
@@ -172,10 +250,17 @@ def execute_culling_candidate(
         certificate_index_file
     )
 
-    destination_paths = _destination_paths(
-        candidate
+    destination_paths = (
+        _candidate_destination_paths(
+            candidate
+        )
     )
-    provenance_ids = _provenance_ids(
+    provenance_ids = (
+        _candidate_provenance_ids(
+            candidate
+        )
+    )
+    expected_count = _expected_entry_count(
         candidate
     )
 
@@ -186,19 +271,27 @@ def execute_culling_candidate(
         certificate_index.entries
     )
 
-    manifest.files = [
+    removed_manifest_entries = [
         entry
         for entry in manifest.files
         if (
-            Path(entry.destination_path).expanduser()
-            not in destination_paths
+            Path(
+                entry.destination_path
+            ).expanduser()
+            in destination_paths
         )
     ]
 
-    removed_manifest_entries = (
-        len(original_manifest_files)
-        - len(manifest.files)
-    )
+    remaining_manifest_entries = [
+        entry
+        for entry in manifest.files
+        if (
+            Path(
+                entry.destination_path
+            ).expanduser()
+            not in destination_paths
+        )
+    ]
 
     removed_index_entries = [
         entry
@@ -206,37 +299,35 @@ def execute_culling_candidate(
         if entry.provenance_id in provenance_ids
     ]
 
-    certificate_index.entries = [
+    remaining_index_entries = [
         entry
         for entry in certificate_index.entries
         if entry.provenance_id not in provenance_ids
     ]
 
-    if removed_manifest_entries != 2:
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message=(
-                "Expected exactly two manifest entries "
-                "for RAW/JPG pair"
+    if (
+        len(removed_manifest_entries)
+        != expected_count
+    ):
+        return _result_failure(
+            candidate,
+            (
+                "Expected exactly "
+                f"{expected_count} manifest "
+                "entry or entries for this action"
             ),
         )
 
-    if len(removed_index_entries) != 2:
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message=(
-                "Expected exactly two certificate index "
-                "entries for RAW/JPG pair"
+    if (
+        len(removed_index_entries)
+        != expected_count
+    ):
+        return _result_failure(
+            candidate,
+            (
+                "Expected exactly "
+                f"{expected_count} certificate index "
+                "entry or entries for this action"
             ),
         )
 
@@ -246,20 +337,12 @@ def execute_culling_candidate(
     )
 
     if quarantine_root.exists():
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message="Culling quarantine already exists",
+        return _result_failure(
+            candidate,
+            "Culling quarantine already exists",
         )
 
-    raw_quarantine_path = (
-        quarantine_root
-        / candidate.raw_path.name
-    )
+    raw_quarantine_path: Path | None = None
 
     quarantined_items: list[
         tuple[Path, Path]
@@ -271,22 +354,31 @@ def execute_culling_candidate(
             exist_ok=False,
         )
 
-        raw_quarantine_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        if (
+            candidate.status
+            == CullingCandidateStatus.CULL_CANDIDATE
+        ):
+            if candidate.raw_path is None:
+                raise RuntimeError(
+                    "Verified RAW path is missing"
+                )
 
-        shutil.move(
-            str(candidate.raw_path),
-            str(raw_quarantine_path),
-        )
-
-        quarantined_items.append(
-            (
-                candidate.raw_path,
-                raw_quarantine_path,
+            raw_quarantine_path = (
+                quarantine_root
+                / candidate.raw_path.name
             )
-        )
+
+            shutil.move(
+                str(candidate.raw_path),
+                str(raw_quarantine_path),
+            )
+
+            quarantined_items.append(
+                (
+                    candidate.raw_path,
+                    raw_quarantine_path,
+                )
+            )
 
         for entry in removed_index_entries:
             certificate_path = Path(
@@ -336,6 +428,13 @@ def execute_culling_candidate(
                     )
                 )
 
+        manifest.files = (
+            remaining_manifest_entries
+        )
+        certificate_index.entries = (
+            remaining_index_entries
+        )
+
         write_manifest_to_path(
             manifest,
             manifest_file,
@@ -347,7 +446,9 @@ def execute_culling_candidate(
         )
 
     except Exception:
-        manifest.files = original_manifest_files
+        manifest.files = (
+            original_manifest_files
+        )
         certificate_index.entries = (
             original_index_entries
         )
@@ -357,6 +458,7 @@ def execute_culling_candidate(
                 manifest,
                 manifest_file,
             )
+
             write_index(
                 certificate_index,
                 certificate_index_file,
@@ -372,6 +474,7 @@ def execute_culling_candidate(
                     parents=True,
                     exist_ok=True,
                 )
+
                 shutil.move(
                     str(quarantined),
                     str(original),
@@ -383,26 +486,45 @@ def execute_culling_candidate(
                 ignore_errors=True,
             )
 
-        return CullingExecutionResult(
-            success=False,
-            stem=candidate.stem,
-            raw_quarantine_path=None,
-            removed_manifest_entries=0,
-            removed_index_entries=0,
-            quarantined_provenance_items=0,
-            message="Culling transaction failed and was rolled back",
+        return _result_failure(
+            candidate,
+            (
+                "Culling transaction failed "
+                "and was rolled back"
+            ),
         )
+
+    if (
+        candidate.status
+        == CullingCandidateStatus.CULL_CANDIDATE
+    ):
+        message = (
+            "Culling candidate quarantined successfully"
+        )
+    else:
+        message = (
+            "Deleted JPG provenance cleaned up successfully"
+        )
+
+    raw_item_count = (
+        1
+        if raw_quarantine_path is not None
+        else 0
+    )
 
     return CullingExecutionResult(
         success=True,
         stem=candidate.stem,
         raw_quarantine_path=raw_quarantine_path,
-        removed_manifest_entries=removed_manifest_entries,
+        removed_manifest_entries=len(
+            removed_manifest_entries
+        ),
         removed_index_entries=len(
             removed_index_entries
         ),
         quarantined_provenance_items=(
-            len(quarantined_items) - 1
+            len(quarantined_items)
+            - raw_item_count
         ),
-        message="Culling candidate quarantined successfully",
+        message=message,
     )

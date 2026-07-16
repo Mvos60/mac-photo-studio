@@ -1313,10 +1313,6 @@ def test_cli_import_reports_digikam_launch_failure(
     assert exit_code == 1
     assert "Status           : NOT LAUNCHED" in output
     assert "digiKam application was not found" in output
-
-
-
-
 def test_cli_analyze_culling_prints_read_only_report(
     tmp_path,
     monkeypatch,
@@ -1372,8 +1368,9 @@ def test_cli_analyze_culling_prints_read_only_report(
 
     assert exit_code == 0
     assert "Culling Analysis" in output
-    assert "Missing imported JPGs : 1" in output
-    assert "Verified orphan RAWs  : 1" in output
+    assert "Missing imported JPGs          : 1" in output
+    assert "Verified orphan RAWs           : 1" in output
+    assert "Provenance cleanup candidates  : 0" in output
     assert "DSC0001" in output
     assert "CULL CANDIDATE" in output
     assert (
@@ -1647,5 +1644,5 @@ def test_cli_confirm_culling_rejects_unknown_candidate(
     output = capsys.readouterr().out
 
     assert exit_code == 1
-    assert "NOT A VERIFIED CULLING CANDIDATE" in output
+    assert "NOT AN ACTIONABLE CULLING ITEM" in output
     assert "No files were changed." in output

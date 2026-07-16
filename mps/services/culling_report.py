@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from mps.services.culling_analyzer import CullingAnalysis
+from mps.services.culling_analyzer import (
+    CullingAnalysis,
+    CullingCandidateStatus,
+)
 
 
 def build_culling_report(
@@ -10,11 +13,15 @@ def build_culling_report(
         "Culling Analysis",
         "================",
         "",
-        f"Import root           : {analysis.import_root}",
-        f"Missing imported JPGs : {analysis.missing_jpeg_count}",
+        f"Import root                    : {analysis.import_root}",
+        f"Missing imported JPGs          : {analysis.missing_jpeg_count}",
         (
-            "Verified orphan RAWs  : "
+            "Verified orphan RAWs           : "
             f"{analysis.orphan_raw_candidate_count}"
+        ),
+        (
+            "Provenance cleanup candidates  : "
+            f"{analysis.provenance_cleanup_candidate_count}"
         ),
         "",
     ]
@@ -34,12 +41,26 @@ def build_culling_report(
     lines.append("")
 
     for item in analysis.missing_jpegs:
-        if item.is_orphan_raw_candidate:
+        if (
+            item.status
+            == CullingCandidateStatus.CULL_CANDIDATE
+        ):
             status = "CULL CANDIDATE"
-        elif item.has_surviving_raw:
+        elif (
+            item.status
+            == (
+                CullingCandidateStatus
+                .PROVENANCE_CLEANUP_CANDIDATE
+            )
+        ):
+            status = "PROVENANCE CLEANUP CANDIDATE"
+        elif (
+            item.status
+            == CullingCandidateStatus.RAW_HASH_MISMATCH
+        ):
             status = "BLOCKED: RAW HASH MISMATCH"
         else:
-            status = "NO SURVIVING VERIFIED RAW"
+            status = "NO ACTION: IMPORTED RAW IS MISSING"
 
         lines.extend(
             [

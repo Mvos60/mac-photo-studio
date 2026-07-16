@@ -141,7 +141,7 @@ def print_confirm_culling(
 
     candidates = [
         candidate
-        for candidate in analysis.orphan_raw_candidates
+        for candidate in analysis.actionable_candidates
         if candidate.stem == stem
     ]
 
@@ -152,7 +152,7 @@ def print_confirm_culling(
         print(f"Import root : {root}")
         print(f"Photo stem  : {stem}")
         print()
-        print("Status      : NOT A VERIFIED CULLING CANDIDATE")
+        print("Status      : NOT AN ACTIONABLE CULLING ITEM")
         print("No files were changed.")
         return 1
 
@@ -164,12 +164,28 @@ def print_confirm_culling(
     print(f"Import root : {root}")
     print(f"Photo stem  : {candidate.stem}")
     print(f"Missing JPG : {candidate.jpeg_path}")
-    print(f"Verified RAW: {candidate.raw_path}")
-    print()
-    print(
-        "The RAW and active provenance for this "
-        "photographic pair will be moved to quarantine."
-    )
+
+    if candidate.is_provenance_cleanup_candidate:
+        print("Imported RAW: -")
+        print()
+        print(
+            "This JPG-only photograph was deleted by the "
+            "photographer."
+        )
+        print(
+            "Its active JPG provenance will be moved "
+            "to quarantine."
+        )
+        print("No RAW is involved.")
+    else:
+        print(f"Verified RAW: {candidate.raw_path}")
+        print()
+        print(
+            "The verified orphan RAW and the active "
+            "RAW/JPG provenance"
+        )
+        print("will be moved to quarantine.")
+
     print()
 
     answer = input(
@@ -190,6 +206,16 @@ def print_confirm_culling(
     print("Culling Result")
     print("==============")
     print()
+
+    if candidate.is_provenance_cleanup_candidate:
+        operation = "JPG PROVENANCE CLEANUP"
+    else:
+        operation = "VERIFIED RAW CULL"
+
+    print(
+        f"Operation                   : "
+        f"{operation}"
+    )
     print(
         f"Status                      : "
         f"{'QUARANTINED' if result.success else 'FAILED'}"
@@ -212,8 +238,16 @@ def print_confirm_culling(
             f"RAW quarantine path         : "
             f"{result.raw_quarantine_path}"
         )
+    elif candidate.is_provenance_cleanup_candidate:
+        print(
+            "RAW quarantine path         : "
+            "not applicable"
+        )
 
-    print(f"Message                     : {result.message}")
+    print(
+        f"Message                     : "
+        f"{result.message}"
+    )
 
     return 0 if result.success else 1
 
