@@ -1,7 +1,7 @@
 # Mac Photo Studio
 
-**Released version:** 0.2.0  
-**Current development:** 0.2.1  
+**Stable release:** 0.2.0  
+**Release candidate:** 0.2.1 RC1  
 **Target platform:** Ubuntu/Linux
 
 Mac Photo Studio is a verified photographic import and provenance workflow for photographers using digiKam and darktable.
@@ -185,7 +185,7 @@ Confirmed culling requires explicit photographer action and quarantines verified
 - trusted digiKam/darktable workflow integration
 - final photograph verification
 
-### 0.2.1 development
+### 0.2.1 RC1
 
 Current development work includes:
 
