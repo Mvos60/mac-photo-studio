@@ -8,6 +8,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable
 
+from mps.constants import ACTIVE_IMPORT_SESSION
+from mps.paths import get_photo_library
 from mps.version import get_version
 
 
@@ -162,6 +164,7 @@ def choose_import_session(
 ) -> Path | None:
     selected = filedialog.askdirectory(
         title=title,
+        initialdir=str(get_photo_library()),
         mustexist=True,
     )
 
@@ -176,6 +179,7 @@ def choose_photo(
 ) -> Path | None:
     selected = filedialog.askopenfilename(
         title=title,
+        initialdir=str(get_photo_library()),
         filetypes=[
             (
                 "Photographs",
@@ -243,15 +247,8 @@ def _application_available(
 
 
 def build_status_items() -> list[tuple[str, str]]:
-    archive = Path.home() / "Photos_Master"
-
-    active_session = (
-        Path.home()
-        / ".local"
-        / "state"
-        / "mac-photo-studio"
-        / "active_import_session.json"
-    )
+    archive = get_photo_library()
+    active_session = ACTIVE_IMPORT_SESSION
 
     digikam_available = _application_available(
         ("digikam",),
