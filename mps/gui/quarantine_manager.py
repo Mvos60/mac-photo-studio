@@ -86,8 +86,8 @@ class QuarantineManagerDialog:
 
         self._window = tk.Toplevel(parent)
         self._window.title("Quarantine Manager")
-        self._window.geometry("1180x965")
-        self._window.minsize(980, 825)
+        self._window.geometry("1180x940")
+        self._window.minsize(980, 800)
         self._window.transient(parent)
 
         self._configure_styles()
@@ -702,8 +702,8 @@ class QuarantineManagerDialog:
         dialog = tk.Toplevel(self._window)
         dialog.title(f"Quarantine details — {item.stem}")
         dialog.transient(self._window)
-        dialog.geometry("960x645")
-        dialog.minsize(820, 595)
+        dialog.geometry("960x700")
+        dialog.minsize(820, 650)
 
         frame = ttk.Frame(dialog, padding=(22, 18, 22, 20))
         frame.grid(row=0, column=0, sticky="nsew")
@@ -993,7 +993,7 @@ class QuarantineManagerDialog:
             return
 
         typed = self._ask_delete_confirmation()
-        if typed != "DELETE":
+        if typed is None or typed.strip().upper() != "DELETE":
             messagebox.showinfo(
                 "Permanent removal cancelled",
                 (
@@ -1077,8 +1077,8 @@ class QuarantineManagerDialog:
         ttk.Label(
             frame,
             text=(
-                "Type DELETE exactly to confirm that the "
-                "selected quarantine items may be removed forever."
+                "Type DELETE to confirm that the selected quarantine "
+                "items may be removed forever. Capitalisation does not matter."
             ),
             font=BODY_FONT,
             justify="left",
