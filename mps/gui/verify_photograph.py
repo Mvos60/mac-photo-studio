@@ -6,6 +6,11 @@ import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from mps.gui.dialogs import (
+    BODY_ITALIC_FONT,
+    MpsDialog,
+)
+
 
 def run_verification(photo: Path) -> tuple[int, str]:
     process = subprocess.run(
@@ -113,56 +118,32 @@ class VerifyPhotographDialog:
         parent: tk.Misc,
         photo: Path,
     ) -> None:
-        self._window = tk.Toplevel(parent)
-        self._window.title("Verify Photograph")
-        self._window.geometry("820x620")
-        self._window.minsize(660, 480)
-        self._window.transient(parent)
+        self._choose_another = False
 
-        self._window.columnconfigure(0, weight=1)
-        self._window.rowconfigure(1, weight=1)
-
-        header = ttk.Frame(
-            self._window,
-            padding=(22, 18, 22, 12),
+        self._dialog = MpsDialog(
+            parent,
+            title="Verify Photograph",
+            size="medium",
         )
-        header.grid(
-            row=0,
-            column=0,
-            sticky="ew",
-        )
-        header.columnconfigure(0, weight=1)
+        self._window = self._dialog.window
 
-        ttk.Label(
-            header,
-            text="Verify Photograph",
-            font=("Sans", 16, "bold"),
-        ).grid(
-            row=0,
-            column=0,
-            sticky="w",
-        )
+        self._window.geometry("1180x940")
+        self._window.minsize(980, 800)
 
-        ttk.Label(
-            header,
-            text=(
+        self._dialog.add_header(
+            "Verify Photograph",
+            (
                 "This checks the photograph's technical MPS "
                 "identity and provenance records. It does not "
                 "judge image quality, sharpness or editing style."
             ),
-            justify="left",
             wraplength=760,
-        ).grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=(6, 0),
         )
 
         ttk.Label(
-            header,
+            self._dialog.header,
             text=str(photo),
-            font=("Sans", 10, "italic"),
+            font=BODY_ITALIC_FONT,
             justify="left",
             wraplength=760,
         ).grid(
@@ -172,16 +153,7 @@ class VerifyPhotographDialog:
             pady=(10, 0),
         )
 
-        content = ttk.Frame(
-            self._window,
-            padding=(22, 0, 22, 0),
-        )
-        content.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-        )
-        content.columnconfigure(0, weight=1)
+        content = self._dialog.content
         content.rowconfigure(1, weight=1)
 
         returncode, output = run_verification(photo)
@@ -190,9 +162,9 @@ class VerifyPhotographDialog:
             output,
         )
 
-        status_box = ttk.LabelFrame(
+        status_box = self._dialog.create_section(
             content,
-            text="Verification result",
+            title="Verification result",
             padding=(14, 12),
         )
         status_box.grid(
@@ -201,7 +173,6 @@ class VerifyPhotographDialog:
             sticky="ew",
             pady=(0, 12),
         )
-        status_box.columnconfigure(0, weight=1)
 
         ttk.Label(
             status_box,
@@ -225,9 +196,9 @@ class VerifyPhotographDialog:
             pady=(5, 0),
         )
 
-        details_box = ttk.LabelFrame(
+        details_box = self._dialog.create_section(
             content,
-            text="Technical details",
+            title="Technical details",
             padding=(10, 10),
         )
         details_box.grid(
@@ -235,7 +206,6 @@ class VerifyPhotographDialog:
             column=0,
             sticky="nsew",
         )
-        details_box.columnconfigure(0, weight=1)
         details_box.rowconfigure(0, weight=1)
 
         text = tk.Text(
@@ -271,47 +241,37 @@ class VerifyPhotographDialog:
         )
         text.configure(state="disabled")
 
-        footer = ttk.Frame(
-            self._window,
-            padding=(22, 14, 22, 20),
-        )
-        footer.grid(
-            row=2,
+        self._dialog.add_footer_button(
+            text="Choose another photograph",
+            command=self._choose_another_photo,
             column=0,
-            sticky="ew",
         )
-        footer.columnconfigure(0, weight=1)
+        self._dialog.add_close_button()
+        self._dialog.show()
+        self._window.update_idletasks()
+        self._window.lift()
+        self._window.focus_force()
+        self._window.wait_window()
 
-        ttk.Button(
-            footer,
-            text="Close",
-            command=self._window.destroy,
-        ).grid(
-            row=0,
-            column=1,
-        )
+    @property
+    def choose_another(self) -> bool:
+        return self._choose_another
 
-        self._window.protocol(
-            "WM_DELETE_WINDOW",
-            self._window.destroy,
-        )
-        self._window.bind(
-            "<Escape>",
-            lambda _event: self._window.destroy(),
-        )
-        self._window.grab_set()
-        self._window.focus_set()
+    def _choose_another_photo(self) -> None:
+        self._choose_another = True
+        self._dialog.close()
 
 
 def show_verify_photograph(
     parent: tk.Misc,
     photo: Path,
-) -> None:
+) -> bool:
     try:
-        VerifyPhotographDialog(
+        dialog = VerifyPhotographDialog(
             parent,
             photo,
         )
+        return dialog.choose_another
     except OSError as exc:
         messagebox.showerror(
             "Verification unavailable",
@@ -321,3 +281,4 @@ def show_verify_photograph(
             ),
             parent=parent,
         )
+        return False

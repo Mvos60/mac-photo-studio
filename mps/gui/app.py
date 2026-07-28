@@ -5,7 +5,7 @@ import shlex
 import shutil
 import subprocess
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import Callable
 
 from mps.constants import ACTIVE_IMPORT_SESSION
@@ -15,6 +15,7 @@ from mps.gui.verify_photograph import show_verify_photograph
 from mps.gui.session_picker import (
     choose_import_session as choose_import_session_dialog,
 )
+from mps.gui.photo_picker import choose_photo as choose_photo_dialog
 from mps.paths import get_photo_library
 from mps.version import get_version
 
@@ -176,38 +177,18 @@ def choose_import_session(
     )
 
 
+
 def choose_photo(
+    parent: tk.Misc,
     title: str,
+    description: str,
 ) -> Path | None:
-    selected = filedialog.askopenfilename(
+    return choose_photo_dialog(
+        parent=parent,
+        photo_library=get_photo_library(),
         title=title,
-        initialdir=str(get_photo_library()),
-        filetypes=[
-            (
-                "Photographs",
-                (
-                    "*.ARW",
-                    "*.arw",
-                    "*.JPG",
-                    "*.jpg",
-                    "*.JPEG",
-                    "*.jpeg",
-                    "*.TIF",
-                    "*.tif",
-                    "*.TIFF",
-                    "*.tiff",
-                    "*.PNG",
-                    "*.png",
-                ),
-            ),
-            ("All files", "*"),
-        ],
+        description=description,
     )
-
-    if not selected:
-        return None
-
-    return Path(selected).expanduser()
 
 
 def _application_available(
@@ -593,19 +574,36 @@ def run_gui() -> None:
             )
 
     def verify_photo() -> None:
-        photo = choose_photo(
-            "Select a photograph to verify"
-        )
+        while True:
+            photo = choose_photo(
+                root,
+                "Select a photograph to verify",
+                (
+                    "Select the photograph you want MPS to verify. "
+                    "MPS will compare the file with its recorded identity "
+                    "and provenance information."
+                ),
+            )
 
-        if photo is not None:
-            show_verify_photograph(
+            if photo is None:
+                return
+
+            choose_another = show_verify_photograph(
                 root,
                 photo,
             )
 
+            if not choose_another:
+                return
+
     def show_photo_history() -> None:
         photo = choose_photo(
-            "Select a photograph"
+            root,
+            "Select a photograph",
+            (
+                "Select the photograph whose MPS provenance history "
+                "you want to view."
+            ),
         )
 
         if photo is not None:
