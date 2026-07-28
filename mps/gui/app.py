@@ -9,6 +9,12 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Callable
 
 from mps.constants import ACTIVE_IMPORT_SESSION
+from mps.gui.culling_review import show_culling_review
+from mps.gui.quarantine_manager import show_quarantine_manager
+from mps.gui.verify_photograph import show_verify_photograph
+from mps.gui.session_picker import (
+    choose_import_session as choose_import_session_dialog,
+)
 from mps.paths import get_photo_library
 from mps.version import get_version
 
@@ -160,18 +166,14 @@ def open_path(path: Path) -> None:
 
 
 def choose_import_session(
+    parent: tk.Misc,
     title: str,
 ) -> Path | None:
-    selected = filedialog.askdirectory(
+    return choose_import_session_dialog(
+        parent=parent,
+        photo_library=get_photo_library(),
         title=title,
-        initialdir=str(get_photo_library()),
-        mustexist=True,
     )
-
-    if not selected:
-        return None
-
-    return Path(selected).expanduser()
 
 
 def choose_photo(
@@ -320,8 +322,8 @@ def build_status_items() -> list[tuple[str, str]]:
 def run_gui() -> None:
     root = tk.Tk()
     root.title("Mac Photo Studio")
-    root.geometry("1040x760")
-    root.minsize(980, 720)
+    root.geometry("1040x860")
+    root.minsize(980, 820)
 
     style = ttk.Style(root)
 
@@ -350,7 +352,7 @@ def run_gui() -> None:
     style.configure(
         "MPS.TButton",
         font=button_font,
-        padding=(14, 8),
+        padding=(14, 6),
     )
 
     style.configure(
@@ -422,8 +424,8 @@ def run_gui() -> None:
 
     content.columnconfigure(0, weight=1)
     content.columnconfigure(1, weight=1)
-    content.rowconfigure(0, weight=1)
-    content.rowconfigure(1, weight=1)
+    content.rowconfigure(0, weight=0, minsize=292)
+    content.rowconfigure(1, weight=1, minsize=258)
 
     status = ttk.LabelFrame(
         content,
@@ -468,7 +470,7 @@ def run_gui() -> None:
         column=0,
         sticky="n",
         padx=(0, 12),
-        pady=(2, 14),
+        pady=(2, 10),
     )
 
     ttk.Label(
@@ -484,7 +486,7 @@ def run_gui() -> None:
         row=0,
         column=1,
         sticky="ew",
-        pady=(2, 14),
+        pady=(2, 10),
     )
 
     for row, (level, message) in enumerate(
@@ -501,7 +503,7 @@ def run_gui() -> None:
             column=0,
             sticky="n",
             padx=(0, 12),
-            pady=6,
+            pady=4,
         )
 
         ttk.Label(
@@ -515,7 +517,7 @@ def run_gui() -> None:
             row=row,
             column=1,
             sticky="ew",
-            pady=6,
+            pady=4,
         )
 
     ttk.Label(
@@ -533,7 +535,7 @@ def run_gui() -> None:
         column=0,
         columnspan=2,
         sticky="ew",
-        pady=(18, 2),
+        pady=(10, 2),
     )
 
     import_frame = ttk.LabelFrame(
@@ -580,15 +582,14 @@ def run_gui() -> None:
 
     def analyze_culling() -> None:
         session = choose_import_session(
-            "Select an import session to analyze"
+            root,
+            "Select an import session to analyze",
         )
 
         if session is not None:
-            launch_cli(
-                [
-                    "--analyze-culling",
-                    str(session),
-                ]
+            show_culling_review(
+                root,
+                session,
             )
 
     def verify_photo() -> None:
@@ -597,11 +598,9 @@ def run_gui() -> None:
         )
 
         if photo is not None:
-            launch_cli(
-                [
-                    "verify-photo",
-                    str(photo),
-                ]
+            show_verify_photograph(
+                root,
+                photo,
             )
 
     def show_photo_history() -> None:
@@ -626,7 +625,19 @@ def run_gui() -> None:
         row=0,
         column=0,
         sticky="ew",
-        pady=(0, 8),
+        pady=(0, 5),
+    )
+
+    ttk.Button(
+        tools,
+        text="🗄️  Quarantine Manager",
+        command=lambda: show_quarantine_manager(root),
+        style="MPS.TButton",
+    ).grid(
+        row=1,
+        column=0,
+        sticky="ew",
+        pady=5,
     )
 
     ttk.Button(
@@ -635,10 +646,10 @@ def run_gui() -> None:
         command=verify_photo,
         style="MPS.TButton",
     ).grid(
-        row=1,
+        row=2,
         column=0,
         sticky="ew",
-        pady=8,
+        pady=5,
     )
 
     ttk.Button(
@@ -647,10 +658,10 @@ def run_gui() -> None:
         command=show_photo_history,
         style="MPS.TButton",
     ).grid(
-        row=2,
+        row=3,
         column=0,
         sticky="ew",
-        pady=(8, 0),
+        pady=(5, 0),
     )
 
     utility_tools = ttk.LabelFrame(
