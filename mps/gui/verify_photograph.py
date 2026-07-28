@@ -63,6 +63,8 @@ def verification_state(
         marker in normalized
         for marker in (
             "HASH MISMATCH",
+            "SHA-256 DOES NOT MATCH",
+            "DOES NOT MATCH RECORDED IDENTITY",
             "MODIFIED",
             "CHANGED",
             "INVALID",
@@ -84,13 +86,15 @@ def verification_state(
             "UNKNOWN",
             "NOT MANAGED",
             "NO CERTIFICATE",
+            "NOT INSIDE A MANAGED PROVENANCE IMPORT",
         )
     ):
         return (
-            "Not managed by MPS",
+            "NOT MANAGED BY MPS",
             (
-                "No complete MPS provenance record could be "
-                "confirmed for this file."
+                "This photograph was found, but MPS could not link "
+                "it to a verified MPS import. This does not mean "
+                "that the photograph was altered or is AI-generated."
             ),
         )
 

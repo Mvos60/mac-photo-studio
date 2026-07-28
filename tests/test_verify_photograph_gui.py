@@ -32,8 +32,10 @@ def test_verification_state_not_managed() -> None:
         "No certificate found",
     )
 
-    assert state == "Not managed by MPS"
-    assert "provenance record" in explanation
+    assert state == "NOT MANAGED BY MPS"
+    assert "verified MPS import" in explanation
+    assert "does not mean" in explanation
+    assert "AI-generated" in explanation
 
 
 def test_verification_state_fallback() -> None:
@@ -87,3 +89,28 @@ def test_verify_workflow_reopens_picker_when_requested() -> None:
     assert "while True:" in source
     assert "choose_another = show_verify_photograph(" in source
     assert "if not choose_another:" in source
+
+
+def test_verification_state_managed_import_reason_is_not_managed() -> None:
+    state, explanation = verification_state(
+        1,
+        (
+            "Status: NOT TRUSTED\n"
+            "Reason: Photo is not inside a managed provenance import"
+        ),
+    )
+
+    assert state == "NOT MANAGED BY MPS"
+    assert "verified MPS import" in explanation
+    assert "altered" in explanation
+    assert "AI-generated" in explanation
+
+
+def test_verification_state_identity_mismatch_remains_changed() -> None:
+    state, explanation = verification_state(
+        1,
+        "Actual file SHA-256 does not match recorded identity",
+    )
+
+    assert state == "Changed or invalid"
+    assert "does not fully match" in explanation
