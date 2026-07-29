@@ -129,3 +129,40 @@ def test_status_items_use_shared_application_resolver(
         "amber",
         "darktable not detected automatically",
     ) in items
+
+def test_status_items_show_photo_archive_path_on_own_line(
+    tmp_path,
+    monkeypatch,
+):
+    settings = object()
+
+    monkeypatch.setattr(
+        "mps.gui.app.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.gui.app.get_photo_library",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "mps.gui.app.ACTIVE_IMPORT_SESSION",
+        tmp_path / "no-active-session.json",
+    )
+    monkeypatch.setattr(
+        "mps.gui.app.resolve_application",
+        lambda settings, key, command_name:
+        ApplicationResolution(
+            name=key,
+            found=True,
+            method="test",
+            command=f"/opt/{command_name}",
+            message="test",
+        ),
+    )
+
+    items = build_status_items()
+
+    assert (
+        "green",
+        f"Photo archive found:\n{tmp_path}",
+    ) in items

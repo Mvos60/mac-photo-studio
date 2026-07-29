@@ -221,14 +221,14 @@ def build_status_items() -> list[tuple[str, str]]:
         items.append(
             (
                 "green",
-                f"Photo archive found: {archive}",
+                f"Photo archive found:\n{archive}",
             )
         )
     else:
         items.append(
             (
                 "red",
-                f"Photo archive not found: {archive}",
+                f"Photo archive not found:\n{archive}",
             )
         )
 
