@@ -390,7 +390,7 @@ class PhotoHistoryDialog:
 
         status_box = self._dialog.create_section(
             content,
-            title="History status",
+            title="MPS Status",
             padding=(14, 12),
         )
         status_box.grid(

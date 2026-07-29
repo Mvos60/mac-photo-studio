@@ -154,6 +154,7 @@ def test_photo_history_dialog_uses_mps_framework() -> None:
     assert "MpsDialog(" in source
     assert "self._dialog.add_header(" in source
     assert "self._dialog.create_section(" in source
+    assert 'title="MPS Status"' in source
     assert 'title="Photograph journey"' in source
     assert "ttk.Notebook(" in source
     assert 'text="Readable timeline"' in source

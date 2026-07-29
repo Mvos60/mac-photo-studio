@@ -12,7 +12,7 @@ def test_verification_state_trusted() -> None:
         "Status: VERIFIED",
     )
 
-    assert state == "Trusted"
+    assert state == "TRUSTED"
     assert "matches" in explanation
 
 
@@ -22,7 +22,7 @@ def test_verification_state_changed() -> None:
         "HASH MISMATCH",
     )
 
-    assert state == "Changed or invalid"
+    assert state == "CHANGED OR INVALID"
     assert "does not fully match" in explanation
 
 
@@ -44,7 +44,7 @@ def test_verification_state_fallback() -> None:
         "Unexpected verification error",
     )
 
-    assert state == "Verification unavailable"
+    assert state == "VERIFICATION UNAVAILABLE"
 
 
 def test_verify_dialog_uses_mps_dialog_framework() -> None:
@@ -112,7 +112,7 @@ def test_verification_state_identity_mismatch_remains_changed() -> None:
         "Actual file SHA-256 does not match recorded identity",
     )
 
-    assert state == "Changed or invalid"
+    assert state == "CHANGED OR INVALID"
     assert "does not fully match" in explanation
 
 
@@ -121,5 +121,19 @@ def test_verify_dialog_labels_raw_verification_details() -> None:
         "mps/gui/verify_photograph.py"
     ).read_text(encoding="utf-8")
 
-    assert 'title="Raw verification details"' in source
+    assert 'title="Raw Verification Details"' in source
     assert 'title="Technical details"' not in source
+
+
+def test_verify_and_history_use_same_status_section_title() -> None:
+    verify_source = Path(
+        "mps/gui/verify_photograph.py"
+    ).read_text(encoding="utf-8")
+    history_source = Path(
+        "mps/gui/photo_history.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'title="MPS Status"' in verify_source
+    assert 'title="MPS Status"' in history_source
+    assert 'title="Verification result"' not in verify_source
+    assert 'title="History status"' not in history_source

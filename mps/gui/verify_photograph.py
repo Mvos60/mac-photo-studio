@@ -52,7 +52,7 @@ def verification_state(
         )
     ):
         return (
-            "Trusted",
+            "TRUSTED",
             (
                 "MPS recognises this photograph and its "
                 "recorded identity still matches."
@@ -72,7 +72,7 @@ def verification_state(
         )
     ):
         return (
-            "Changed or invalid",
+            "CHANGED OR INVALID",
             (
                 "The current file does not fully match the "
                 "identity recorded by MPS."
@@ -100,7 +100,7 @@ def verification_state(
 
     if returncode == 0:
         return (
-            "Verification completed",
+            "VERIFICATION COMPLETED",
             (
                 "MPS completed the technical verification. "
                 "Review the details below."
@@ -108,7 +108,7 @@ def verification_state(
         )
 
     return (
-        "Verification unavailable",
+        "VERIFICATION UNAVAILABLE",
         (
             "MPS could not complete the verification. "
             "Review the details below."
@@ -168,7 +168,7 @@ class VerifyPhotographDialog:
 
         status_box = self._dialog.create_section(
             content,
-            title="Verification result",
+            title="MPS Status",
             padding=(14, 12),
         )
         status_box.grid(
@@ -202,7 +202,7 @@ class VerifyPhotographDialog:
 
         details_box = self._dialog.create_section(
             content,
-            title="Raw verification details",
+            title="Raw Verification Details",
             padding=(10, 10),
         )
         details_box.grid(
