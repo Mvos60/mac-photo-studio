@@ -112,7 +112,7 @@ def launch_cli(arguments: list[str]) -> None:
 
     if terminal_command is None:
         messagebox.showerror(
-            "Terminal unavailable",
+            "Terminal Unavailable",
             (
                 "No supported terminal application was found.\n\n"
                 "Run this command manually:\n\n"
@@ -128,7 +128,7 @@ def launch_cli(arguments: list[str]) -> None:
         )
     except OSError as exc:
         messagebox.showerror(
-            "Could not start command",
+            "Could Not Start Command",
             (
                 "The terminal could not be opened.\n\n"
                 f"{exc}\n\n"
@@ -142,7 +142,7 @@ def open_path(path: Path) -> None:
 
     if not expanded.exists():
         messagebox.showinfo(
-            "Location unavailable",
+            "Location Unavailable",
             f"This location does not exist yet:\n\n{expanded}",
         )
         return
@@ -151,7 +151,7 @@ def open_path(path: Path) -> None:
 
     if opener is None:
         messagebox.showerror(
-            "File manager unavailable",
+            "File Manager Unavailable",
             (
                 "The desktop file manager could not be started.\n\n"
                 f"Location:\n{expanded}"
@@ -166,7 +166,7 @@ def open_path(path: Path) -> None:
         )
     except OSError as exc:
         messagebox.showerror(
-            "Could not open location",
+            "Could Not Open Location",
             f"{exc}\n\nLocation:\n{expanded}",
         )
 
