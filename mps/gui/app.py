@@ -275,8 +275,8 @@ def build_status_items() -> list[tuple[str, str]]:
 def run_gui() -> None:
     root = tk.Tk()
     root.title("Mac Photo Studio")
-    root.geometry("1040x860")
-    root.minsize(980, 820)
+    root.geometry("1040x880")
+    root.minsize(980, 840)
 
     style = ttk.Style(root)
 
@@ -509,7 +509,7 @@ def run_gui() -> None:
 
     ttk.Button(
         import_frame,
-        text="📥  Import photographs",
+        text="📥  Import Photographs",
         command=lambda: launch_cli(["import"]),
         style="MPS.Primary.TButton",
     ).grid(
@@ -592,7 +592,7 @@ def run_gui() -> None:
 
     ttk.Button(
         tools,
-        text="🔍  Analyze culling",
+        text="🔍  Analyze Culling",
         command=analyze_culling,
         style="MPS.TButton",
     ).grid(
@@ -616,7 +616,7 @@ def run_gui() -> None:
 
     ttk.Button(
         tools,
-        text="✓  Verify photograph",
+        text="✓  Verify Photograph",
         command=verify_photo,
         style="MPS.TButton",
     ).grid(
@@ -628,7 +628,7 @@ def run_gui() -> None:
 
     ttk.Button(
         tools,
-        text="📜  Show photo history",
+        text="📜  Show Photo History",
         command=show_photo_history,
         style="MPS.TButton",
     ).grid(
@@ -640,7 +640,7 @@ def run_gui() -> None:
 
     utility_tools = ttk.LabelFrame(
         content,
-        text="Tools",
+        text="Application Tools",
         style="MPS.TLabelframe",
     )
     utility_tools.grid(

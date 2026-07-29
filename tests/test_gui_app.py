@@ -2,6 +2,7 @@ from mps.gui.app import (
     build_cli_command,
     build_status_items,
     resolve_terminal_command,
+    run_gui,
 )
 from mps.services.app_resolver import (
     ApplicationResolution,
@@ -166,3 +167,42 @@ def test_status_items_show_photo_archive_path_on_own_line(
         "green",
         f"Photo archive found:\n{tmp_path}",
     ) in items
+
+def test_start_screen_uses_consistent_action_labels():
+    import inspect
+
+    source = inspect.getsource(run_gui)
+
+    expected_labels = (
+        "📥  Import Photographs",
+        "🔍  Analyze Culling",
+        "🗄️  Quarantine Manager",
+        "✓  Verify Photograph",
+        "📜  Show Photo History",
+        "Application Tools",
+        "⚙  Settings",
+        "📄  Logs",
+        "ℹ  About",
+        "Close",
+    )
+
+    for label in expected_labels:
+        assert f'text="{label}"' in source
+
+    old_labels = (
+        "📥  Import photographs",
+        "🔍  Analyze culling",
+        "✓  Verify photograph",
+        "📜  Show photo history",
+    )
+
+    for label in old_labels:
+        assert f'text="{label}"' not in source
+
+def test_start_screen_default_height_keeps_bottom_action_visible():
+    import inspect
+
+    source = inspect.getsource(run_gui)
+
+    assert 'root.geometry("1040x880")' in source
+    assert "root.minsize(980, 840)" in source
