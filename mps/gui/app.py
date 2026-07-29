@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable
 
+from mps.config import load_settings
 from mps.constants import ACTIVE_IMPORT_SESSION
 from mps.gui.culling_review import show_culling_review
 from mps.gui.quarantine_manager import show_quarantine_manager
@@ -20,6 +21,7 @@ from mps.gui.session_picker import (
 )
 from mps.gui.photo_picker import choose_photo as choose_photo_dialog
 from mps.paths import get_photo_library
+from mps.services.app_resolver import resolve_application
 from mps.version import get_version
 
 
@@ -194,57 +196,24 @@ def choose_photo(
     )
 
 
-def _application_available(
-    command_names: tuple[str, ...],
-    appimage_keywords: tuple[str, ...],
-) -> bool:
-    for command_name in command_names:
-        if shutil.which(command_name):
-            return True
-
-    search_directories = (
-        Path.home() / "Applications",
-        Path.home() / "Downloads",
-    )
-
-    for directory in search_directories:
-        if not directory.is_dir():
-            continue
-
-        try:
-            candidates = tuple(directory.iterdir())
-        except OSError:
-            continue
-
-        for candidate in candidates:
-            name = candidate.name.lower()
-
-            if (
-                candidate.is_file()
-                and name.endswith(".appimage")
-                and any(
-                    keyword in name
-                    for keyword in appimage_keywords
-                )
-            ):
-                return True
-
-    return False
-
 
 def build_status_items() -> list[tuple[str, str]]:
     archive = get_photo_library()
     active_session = ACTIVE_IMPORT_SESSION
 
-    digikam_available = _application_available(
-        ("digikam",),
-        ("digikam",),
-    )
+    settings = load_settings()
 
-    darktable_available = _application_available(
-        ("darktable",),
-        ("darktable",),
-    )
+    digikam_available = resolve_application(
+        settings,
+        "digikam",
+        "digikam",
+    ).found
+
+    darktable_available = resolve_application(
+        settings,
+        "darktable",
+        "darktable",
+    ).found
 
     items: list[tuple[str, str]] = []
 
