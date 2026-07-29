@@ -1,7 +1,7 @@
 # Mac Photo Studio
 
-**Stable release:** 0.2.0  
-**Release candidate:** 0.2.1 RC1  
+**Stable release:** 0.2.0<br>
+**Release candidate:** 0.2.1 RC2<br>
 **Target platform:** Ubuntu/Linux
 
 Mac Photo Studio is a verified photographic import and provenance workflow for photographers using digiKam and darktable.
@@ -52,6 +52,13 @@ Camera media
 - Explicit confirmed culling
 - Verified orphan RAW quarantine
 - Active manifest and provenance cleanup after confirmed culling
+- Native photographer dashboard
+- Import-session and photograph pickers
+- Native culling review
+- Quarantine Manager with restore and explicit permanent removal
+- Native photograph verification
+- Readable Photo History
+- Update-safe digiKam and darktable discovery
 
 ## Installation
 
@@ -185,18 +192,23 @@ Confirmed culling requires explicit photographer action and quarantines verified
 - trusted digiKam/darktable workflow integration
 - final photograph verification
 
-### 0.2.1 RC1
+### 0.2.1 RC2
 
-Current development work includes:
+Current release-candidate capabilities include:
 
 - cross-library duplicate-import prevention
 - camera-card trash/system directory filtering
 - provenance-aware culling analysis
 - verified orphan RAW quarantine
-- active provenance and manifest cleanup after confirmed culling
+- native culling review and Quarantine Manager
+- quarantine restore and explicit permanent removal
+- managed-photograph verification and readable Photo History
+- centralized photo archive configuration
+- update-safe digiKam and darktable discovery
+- polished native photographer dashboard
 
-Current development test suite:
+Current release-candidate test suite:
 
 ```text
-462 passed
+558 passed
 ```

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 import shutil
 
@@ -344,6 +346,10 @@ def execute_culling_candidate(
 
     raw_quarantine_path: Path | None = None
 
+    manifest_snapshot = quarantine_root / "manifest.before.json"
+    index_snapshot = quarantine_root / "certificate_index.before.json"
+    metadata_path = quarantine_root / "quarantine.json"
+
     quarantined_items: list[
         tuple[Path, Path]
     ] = []
@@ -353,6 +359,9 @@ def execute_culling_candidate(
             parents=True,
             exist_ok=False,
         )
+
+        write_manifest_to_path(manifest, manifest_snapshot)
+        write_index(certificate_index, index_snapshot)
 
         if (
             candidate.status
@@ -443,6 +452,41 @@ def execute_culling_candidate(
         write_index(
             certificate_index,
             certificate_index_file,
+        )
+
+        metadata = {
+            "version": 1,
+            "stem": candidate.stem,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "import_root": str(root),
+            "raw": (
+                {
+                    "original": str(candidate.raw_path),
+                    "quarantine": str(raw_quarantine_path),
+                }
+                if candidate.raw_path is not None
+                and raw_quarantine_path is not None
+                else None
+            ),
+            "provenance_items": [
+                {
+                    "original": str(original),
+                    "quarantine": str(quarantined),
+                }
+                for original, quarantined in quarantined_items
+                if quarantined != raw_quarantine_path
+            ],
+            "manifest_snapshot": str(manifest_snapshot),
+            "index_snapshot": str(index_snapshot),
+            "manifest_destination_paths": [
+                str(value)
+                for value in sorted(destination_paths, key=lambda item: str(item))
+            ],
+            "provenance_ids": sorted(provenance_ids),
+        }
+        metadata_path.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
 
     except Exception:
