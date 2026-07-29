@@ -12,6 +12,9 @@ from mps.constants import ACTIVE_IMPORT_SESSION
 from mps.gui.culling_review import show_culling_review
 from mps.gui.quarantine_manager import show_quarantine_manager
 from mps.gui.verify_photograph import show_verify_photograph
+from mps.gui.photo_history import (
+    show_photo_history as show_photo_history_dialog,
+)
 from mps.gui.session_picker import (
     choose_import_session as choose_import_session_dialog,
 )
@@ -597,22 +600,26 @@ def run_gui() -> None:
                 return
 
     def show_photo_history() -> None:
-        photo = choose_photo(
-            root,
-            "Select a photograph",
-            (
-                "Select the photograph whose MPS provenance history "
-                "you want to view."
-            ),
-        )
-
-        if photo is not None:
-            launch_cli(
-                [
-                    "photo-history",
-                    str(photo),
-                ]
+        while True:
+            photo = choose_photo(
+                root,
+                "Select a photograph for Photo History",
+                (
+                    "Select the photograph whose MPS provenance history "
+                    "you want to view."
+                ),
             )
+
+            if photo is None:
+                return
+
+            choose_another = show_photo_history_dialog(
+                root,
+                photo,
+            )
+
+            if not choose_another:
+                return
 
     ttk.Button(
         tools,
