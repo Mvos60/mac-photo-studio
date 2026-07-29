@@ -248,7 +248,7 @@ def build_timeline_text(
     if not entries:
         return (
             "No recorded provenance events are available for this "
-            "photograph.\n\nOpen Raw history details for the exact "
+            "photograph.\n\nOpen Raw History Details for the exact "
             "technical result returned by MPS."
         )
 
@@ -424,7 +424,7 @@ class PhotoHistoryDialog:
 
         history_box = self._dialog.create_section(
             content,
-            title="Photograph journey",
+            title="Photograph Journey",
             padding=(10, 10),
         )
         history_box.grid(
@@ -452,11 +452,11 @@ class PhotoHistoryDialog:
 
         notebook.add(
             timeline_tab,
-            text="Readable timeline",
+            text="Readable Timeline",
         )
         notebook.add(
             raw_tab,
-            text="Raw history details",
+            text="Raw History Details",
         )
 
         _readonly_text(

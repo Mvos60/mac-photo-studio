@@ -143,7 +143,7 @@ def test_build_timeline_text_explains_empty_history() -> None:
     text = build_timeline_text(())
 
     assert "No recorded provenance events" in text
-    assert "Raw history details" in text
+    assert "Raw History Details" in text
 
 
 def test_photo_history_dialog_uses_mps_framework() -> None:
@@ -155,10 +155,10 @@ def test_photo_history_dialog_uses_mps_framework() -> None:
     assert "self._dialog.add_header(" in source
     assert "self._dialog.create_section(" in source
     assert 'title="MPS Status"' in source
-    assert 'title="Photograph journey"' in source
+    assert 'title="Photograph Journey"' in source
     assert "ttk.Notebook(" in source
-    assert 'text="Readable timeline"' in source
-    assert 'text="Raw history details"' in source
+    assert 'text="Readable Timeline"' in source
+    assert 'text="Raw History Details"' in source
     assert "self._dialog.add_close_button()" in source
     assert "tk.Toplevel(" not in source
 

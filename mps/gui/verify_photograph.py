@@ -241,7 +241,7 @@ class VerifyPhotographDialog:
 
         text.insert(
             "1.0",
-            output or "No technical details were returned.",
+            output or "No raw verification details were returned.",
         )
         text.configure(state="disabled")
 

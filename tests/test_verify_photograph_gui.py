@@ -137,3 +137,12 @@ def test_verify_and_history_use_same_status_section_title() -> None:
     assert 'title="MPS Status"' in history_source
     assert 'title="Verification result"' not in verify_source
     assert 'title="History status"' not in history_source
+
+
+def test_verify_dialog_uses_raw_verification_empty_message() -> None:
+    source = Path(
+        "mps/gui/verify_photograph.py"
+    ).read_text(encoding="utf-8")
+
+    assert "No raw verification details were returned." in source
+    assert "No technical details were returned." not in source
