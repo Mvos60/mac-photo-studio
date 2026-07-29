@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tkinter as tk
@@ -9,6 +11,25 @@ from tkinter import messagebox, ttk
 from mps.gui.dialogs import (
     BODY_ITALIC_FONT,
     MpsDialog,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryTimelineEntry:
+    number: int
+    event_type: str
+    created_at: str = ""
+    application: str = ""
+    camera: str = ""
+    description: str = ""
+    output_path: str = ""
+
+
+_EVENT_HEADER = re.compile(
+    r"^\s*(?P<number>\d+)\.\s+(?P<event>[A-Za-z0-9_-]+)\s*$"
+)
+_EVENT_FIELD = re.compile(
+    r"^\s+(?P<label>Time|Application|Camera|Output):\s*(?P<value>.*)$"
 )
 
 
@@ -85,7 +106,7 @@ def history_state(
             "TRUSTED HISTORY",
             (
                 "MPS found a valid recorded history for this "
-                "photograph. The entries below show the events "
+                "photograph. The timeline below shows the events "
                 "that MPS has recorded."
             ),
         )
@@ -95,7 +116,7 @@ def history_state(
             "HISTORY AVAILABLE",
             (
                 "MPS found recorded history information. "
-                "Review the entries below."
+                "Review the timeline below."
             ),
         )
 
@@ -103,9 +124,217 @@ def history_state(
         "HISTORY UNAVAILABLE",
         (
             "MPS could not display a complete recorded history. "
-            "Review the details below."
+            "Review the raw history details."
         ),
     )
+
+
+def event_label(event_type: str) -> str:
+    labels = {
+        "capture": "Captured",
+        "ingest": "Imported",
+        "edit": "Edited",
+        "derivative": "Derivative created",
+        "export": "Exported",
+    }
+    normalized = event_type.strip().casefold()
+
+    if normalized in labels:
+        return labels[normalized]
+
+    return normalized.replace("_", " ").replace("-", " ").title()
+
+
+def readable_event_time(value: str) -> str:
+    cleaned = value.strip()
+
+    if not cleaned:
+        return "Time not recorded"
+
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + " UTC"
+
+    return cleaned.replace("T", " ", 1)
+
+
+def parse_history_timeline(
+    output: str,
+) -> tuple[HistoryTimelineEntry, ...]:
+    entries: list[HistoryTimelineEntry] = []
+    current: dict[str, str | int] | None = None
+    description_lines: list[str] = []
+
+    def finish_current() -> None:
+        nonlocal current, description_lines
+
+        if current is None:
+            return
+
+        current["description"] = " ".join(
+            part.strip()
+            for part in description_lines
+            if part.strip()
+        )
+        entries.append(
+            HistoryTimelineEntry(
+                number=int(current["number"]),
+                event_type=str(current["event_type"]),
+                created_at=str(current.get("created_at", "")),
+                application=str(current.get("application", "")),
+                camera=str(current.get("camera", "")),
+                description=str(current.get("description", "")),
+                output_path=str(current.get("output_path", "")),
+            )
+        )
+        current = None
+        description_lines = []
+
+    for line in output.splitlines():
+        header = _EVENT_HEADER.match(line)
+
+        if header is not None:
+            finish_current()
+            current = {
+                "number": int(header.group("number")),
+                "event_type": header.group("event"),
+            }
+            continue
+
+        if current is None:
+            continue
+
+        field = _EVENT_FIELD.match(line)
+
+        if field is not None:
+            label = field.group("label")
+            value = field.group("value").strip()
+            keys = {
+                "Time": "created_at",
+                "Application": "application",
+                "Camera": "camera",
+                "Output": "output_path",
+            }
+            current[keys[label]] = value
+            continue
+
+        stripped = line.strip()
+
+        if stripped:
+            description_lines.append(stripped)
+
+    finish_current()
+    return tuple(entries)
+
+
+def timeline_summary(
+    entries: tuple[HistoryTimelineEntry, ...],
+) -> str:
+    count = len(entries)
+
+    if count == 0:
+        return "No recorded provenance events"
+
+    noun = "event" if count == 1 else "events"
+    journey = "  →  ".join(
+        event_label(entry.event_type)
+        for entry in entries
+    )
+    return f"{count} recorded {noun}\n{journey}"
+
+
+def build_timeline_text(
+    entries: tuple[HistoryTimelineEntry, ...],
+) -> str:
+    if not entries:
+        return (
+            "No recorded provenance events are available for this "
+            "photograph.\n\nOpen Raw history details for the exact "
+            "technical result returned by MPS."
+        )
+
+    lines = [
+        timeline_summary(entries),
+        "",
+    ]
+
+    for entry in entries:
+        lines.append(
+            f"{entry.number}. {event_label(entry.event_type)}"
+        )
+        lines.append(
+            f"   When: {readable_event_time(entry.created_at)}"
+        )
+
+        if entry.application:
+            lines.append(
+                f"   Application: {entry.application}"
+            )
+
+        if entry.camera:
+            lines.append(
+                f"   Camera: {entry.camera}"
+            )
+
+        if entry.description:
+            lines.append(
+                f"   Details: {entry.description}"
+            )
+
+        if entry.output_path:
+            lines.append(
+                f"   Output: {entry.output_path}"
+            )
+
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _readonly_text(
+    parent: tk.Misc,
+    content: str,
+    *,
+    font: tuple[str, int] | tuple[str, int, str] = (
+        "Sans",
+        11,
+    ),
+) -> tk.Text:
+    parent.columnconfigure(0, weight=1)
+    parent.rowconfigure(0, weight=1)
+
+    text = tk.Text(
+        parent,
+        wrap="word",
+        padx=16,
+        pady=14,
+        font=font,
+    )
+    scrollbar = ttk.Scrollbar(
+        parent,
+        orient="vertical",
+        command=text.yview,
+    )
+    text.configure(
+        yscrollcommand=scrollbar.set,
+    )
+
+    text.grid(
+        row=0,
+        column=0,
+        sticky="nsew",
+    )
+    scrollbar.grid(
+        row=0,
+        column=1,
+        sticky="ns",
+    )
+
+    text.insert(
+        "1.0",
+        content,
+    )
+    text.configure(state="disabled")
+    return text
 
 
 class PhotoHistoryDialog:
@@ -157,6 +386,7 @@ class PhotoHistoryDialog:
             returncode,
             output,
         )
+        entries = parse_history_timeline(output)
 
         status_box = self._dialog.create_section(
             content,
@@ -194,7 +424,7 @@ class PhotoHistoryDialog:
 
         history_box = self._dialog.create_section(
             content,
-            title="Recorded provenance history",
+            title="Photograph journey",
             padding=(10, 10),
         )
         history_box.grid(
@@ -204,38 +434,41 @@ class PhotoHistoryDialog:
         )
         history_box.rowconfigure(0, weight=1)
 
-        text = tk.Text(
-            history_box,
-            wrap="word",
-            height=16,
-            padx=10,
-            pady=8,
-        )
-        scrollbar = ttk.Scrollbar(
-            history_box,
-            orient="vertical",
-            command=text.yview,
-        )
-        text.configure(
-            yscrollcommand=scrollbar.set,
-        )
-
-        text.grid(
+        notebook = ttk.Notebook(history_box)
+        notebook.grid(
             row=0,
             column=0,
             sticky="nsew",
         )
-        scrollbar.grid(
-            row=0,
-            column=1,
-            sticky="ns",
+
+        timeline_tab = ttk.Frame(
+            notebook,
+            padding=(8, 8),
+        )
+        raw_tab = ttk.Frame(
+            notebook,
+            padding=(8, 8),
         )
 
-        text.insert(
-            "1.0",
-            output or "No recorded history details were returned.",
+        notebook.add(
+            timeline_tab,
+            text="Readable timeline",
         )
-        text.configure(state="disabled")
+        notebook.add(
+            raw_tab,
+            text="Raw history details",
+        )
+
+        _readonly_text(
+            timeline_tab,
+            build_timeline_text(entries),
+            font=("Sans", 12),
+        )
+        _readonly_text(
+            raw_tab,
+            output or "No raw history details were returned.",
+            font=("Monospace", 10),
+        )
 
         self._dialog.add_footer_button(
             text="Choose another photograph",
