@@ -114,3 +114,12 @@ def test_verification_state_identity_mismatch_remains_changed() -> None:
 
     assert state == "Changed or invalid"
     assert "does not fully match" in explanation
+
+
+def test_verify_dialog_labels_raw_verification_details() -> None:
+    source = Path(
+        "mps/gui/verify_photograph.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'title="Raw verification details"' in source
+    assert 'title="Technical details"' not in source

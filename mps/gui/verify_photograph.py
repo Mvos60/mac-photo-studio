@@ -202,7 +202,7 @@ class VerifyPhotographDialog:
 
         details_box = self._dialog.create_section(
             content,
-            title="Technical details",
+            title="Raw verification details",
             padding=(10, 10),
         )
         details_box.grid(
