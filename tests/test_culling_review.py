@@ -133,3 +133,12 @@ def test_candidate_details_for_provenance_candidate(
     assert "provenance cleanup" in (
         candidate_details(item)
     )
+
+
+def test_culling_review_uses_title_case_for_failure_dialog() -> None:
+    source = Path(
+        "mps/gui/culling_review.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"Safe Quarantine Failed"' in source
+    assert '"Safe Quarantine failed"' not in source

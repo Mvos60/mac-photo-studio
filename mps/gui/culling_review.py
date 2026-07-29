@@ -836,7 +836,7 @@ class CullingReviewDialog:
                 state="normal"
             )
             messagebox.showerror(
-                "Safe Quarantine failed",
+                "Safe Quarantine Failed",
                 (
                     "Mac Photo Studio could not complete "
                     "Safe Quarantine.\n\n"

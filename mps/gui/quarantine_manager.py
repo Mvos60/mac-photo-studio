@@ -212,7 +212,7 @@ class QuarantineManagerDialog:
 
         help_box = ttk.LabelFrame(
             content,
-            text="What can I do here?",
+            text="What Can I Do Here?",
             padding=(12, 6),
             style="Quarantine.TLabelframe",
         )
@@ -396,7 +396,7 @@ class QuarantineManagerDialog:
 
         detail_box = ttk.LabelFrame(
             lower_panel,
-            text="Selected photograph details",
+            text="Selected Photograph Details",
             padding=(12, 8),
             style="Quarantine.TLabelframe",
         )
@@ -452,7 +452,7 @@ class QuarantineManagerDialog:
 
         legend = ttk.LabelFrame(
             lower_panel,
-            text="Recovery status",
+            text="Recovery Status",
             padding=(12, 6),
             style="Quarantine.TLabelframe",
         )
@@ -700,7 +700,7 @@ class QuarantineManagerDialog:
             return
 
         dialog = tk.Toplevel(self._window)
-        dialog.title(f"Quarantine details — {item.stem}")
+        dialog.title(f"Quarantine Details — {item.stem}")
         dialog.transient(self._window)
         dialog.geometry("960x700")
         dialog.minsize(820, 650)
@@ -909,7 +909,7 @@ class QuarantineManagerDialog:
         ]
         if blocked:
             messagebox.showwarning(
-                "Restore unavailable",
+                "Restore Unavailable",
                 (
                     "These quarantine items have incomplete or "
                     "unavailable recovery information:\n\n"
@@ -924,7 +924,7 @@ class QuarantineManagerDialog:
             return
 
         if not messagebox.askyesno(
-            "Confirm restore",
+            "Confirm Restore",
             (
                 f"Restore {len(selected)} selected item(s)?\n\n"
                 "The RAW files and their MPS records will be "
@@ -955,7 +955,7 @@ class QuarantineManagerDialog:
             else messagebox.showwarning
         )
         dialog(
-            "Restore report",
+            "Restore Report",
             (
                 f"Restored: {successes}\n"
                 f"Failed: {len(results) - successes}\n\n"
@@ -980,7 +980,7 @@ class QuarantineManagerDialog:
             for item in selected
         )
         if not messagebox.askyesno(
-            "Permanent removal",
+            "Permanent Removal",
             (
                 f"Permanently remove "
                 f"{len(selected)} quarantine item(s)?\n\n"
@@ -995,7 +995,7 @@ class QuarantineManagerDialog:
         typed = self._ask_delete_confirmation()
         if typed is None or typed.strip().upper() != "DELETE":
             messagebox.showinfo(
-                "Permanent removal cancelled",
+                "Permanent Removal Cancelled",
                 (
                     "The confirmation text did not match. "
                     "Nothing was deleted."
@@ -1030,7 +1030,7 @@ class QuarantineManagerDialog:
             else messagebox.showwarning
         )
         dialog(
-            "Permanent removal report",
+            "Permanent Removal Report",
             (
                 f"Removed: {successes}\n"
                 f"Failed: {len(results) - successes}\n"
@@ -1045,7 +1045,7 @@ class QuarantineManagerDialog:
         self,
     ) -> str | None:
         dialog = tk.Toplevel(self._window)
-        dialog.title("Confirm permanent removal")
+        dialog.title("Confirm Permanent Removal")
         dialog.transient(self._window)
         dialog.resizable(False, False)
 
@@ -1066,7 +1066,7 @@ class QuarantineManagerDialog:
 
         ttk.Label(
             frame,
-            text="Permanent removal",
+            text="Permanent Removal",
             font=DIALOG_TITLE_FONT,
         ).grid(
             row=0,

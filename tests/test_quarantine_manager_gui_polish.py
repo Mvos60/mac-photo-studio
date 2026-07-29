@@ -69,3 +69,41 @@ def test_item_detail_values_no_selection() -> None:
         "—",
     )
 
+
+def test_quarantine_manager_uses_title_case_for_section_and_dialog_titles() -> None:
+    source = Path(
+        "mps/gui/quarantine_manager.py"
+    ).read_text(encoding="utf-8")
+
+    expected = (
+        'text="What Can I Do Here?"',
+        'text="Selected Photograph Details"',
+        'text="Recovery Status"',
+        'dialog.title(f"Quarantine Details — {item.stem}")',
+        '"Restore Unavailable"',
+        '"Confirm Restore"',
+        '"Restore Report"',
+        '"Permanent Removal"',
+        '"Permanent Removal Cancelled"',
+        '"Permanent Removal Report"',
+        'dialog.title("Confirm Permanent Removal")',
+    )
+    legacy = (
+        'text="What can I do here?"',
+        'text="Selected photograph details"',
+        'text="Recovery status"',
+        'dialog.title(f"Quarantine details — {item.stem}")',
+        '"Restore unavailable"',
+        '"Confirm restore"',
+        '"Restore report"',
+        '"Permanent removal"',
+        '"Permanent removal cancelled"',
+        '"Permanent removal report"',
+        'dialog.title("Confirm permanent removal")',
+    )
+
+    for value in expected:
+        assert value in source
+
+    for value in legacy:
+        assert value not in source
