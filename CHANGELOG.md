@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.1 RC2 — 2026-07-29
+
+Added:
+
+- Native Tkinter photographer dashboard and task-specific dialogs
+- Reusable MPS dialog framework
+- Import-session and photograph pickers
+- Native culling review and confirmed quarantine workflow
+- Quarantine Manager with verified restore and explicit permanent removal
+- Managed-photograph verification and readable Photo History views
+- Update-safe digiKam and darktable discovery with AppImage support
+
+Changed:
+
+- Photo archive configuration is centralized and the full archive path is shown in the dashboard.
+- GUI wording, status presentation, action labels and dialog titles are standardized.
+- Unmanaged photographs are reported without implying alteration or AI generation.
+- Main-window terminal and file-manager actions are hardened and directly tested.
+- digiKam can use automatic discovery so AppImage updates do not require a hard-coded versioned path.
+
+Verified:
+
+- 558 automated tests passed
+- Full Python compile passed
+- Dashboard, culling, quarantine, verification, Photo History, Settings and Logs were manually checked on Ubuntu/Linux
+- Health check passed for `/home/mac/Pictures`, digiKam, darktable, rsync and exiftool
+
 ## 0.2.1 RC1 — 2026-07-16
 
 Added:
