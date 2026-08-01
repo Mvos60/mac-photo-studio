@@ -79,9 +79,11 @@ def test_single_raw_card_can_finish_session(
         lambda settings: next(selections),
     )
 
+    prompts = []
+
     monkeypatch.setattr(
         "builtins.input",
-        lambda _: "",
+        lambda prompt: prompts.append(prompt) or "no",
     )
 
     result = run_import_media_session(
@@ -100,7 +102,10 @@ def test_single_raw_card_can_finish_session(
     assert result.batches_processed == 1
     assert result.copied == 1
     assert len(result.session.sources) == 1
-    assert "Eject or unmount the media before physical removal." in output
+    assert "same photo session" in output
+    assert "matching RAW or JPG card" in output
+    assert "Press Enter to scan" in prompts[0]
+    assert "type no only when all cards are imported" in prompts[0]
 
 
 def test_raw_then_jpeg_same_reader_are_processed_sequentially(
@@ -160,7 +165,7 @@ def test_raw_then_jpeg_same_reader_are_processed_sequentially(
         discover,
     )
 
-    answers = iter(["y", ""])
+    answers = iter(["", "no"])
 
     monkeypatch.setattr(
         "builtins.input",
@@ -203,9 +208,7 @@ def test_raw_then_jpeg_same_reader_are_processed_sequentially(
     assert (destination / "DSC0001.ARW").exists()
     assert (destination / "DSC0001.JPG").exists()
 
-    assert output.count(
-        "Eject or unmount the media before physical removal."
-    ) == 2
+    assert output.count("same photo session") == 2
     assert "Final Import Session Reconciliation" in output
     assert "FINAL STATUS       : IMPORT SESSION RECONCILED" in output
 
@@ -235,7 +238,7 @@ def test_two_simultaneous_cards_are_one_batch(
 
     monkeypatch.setattr(
         "builtins.input",
-        lambda _: "",
+        lambda _: "no",
     )
 
     result = run_import_media_session(
@@ -316,7 +319,7 @@ def test_same_card_rescan_defaults_to_retry(
         discover,
     )
 
-    answers = iter(["y", "", ""])
+    answers = iter(["", "", "no"])
 
     monkeypatch.setattr(
         "builtins.input",
@@ -343,11 +346,11 @@ def test_same_card_rescan_defaults_to_retry(
     ) in output
     assert (
         "Eject or unmount the processed media and "
-        "insert the next source."
+        "insert the next card from the same photo session."
     ) in output
 
 
-def test_empty_reader_after_batch_defaults_to_finish(
+def test_empty_reader_after_batch_retries_until_explicit_no(
     monkeypatch,
     capsys,
     tmp_path: Path,
@@ -367,6 +370,7 @@ def test_empty_reader_after_batch_defaults_to_finish(
         [
             first_selection,
             empty_selection,
+            empty_selection,
         ]
     )
 
@@ -376,7 +380,7 @@ def test_empty_reader_after_batch_defaults_to_finish(
         lambda settings: next(discoveries),
     )
 
-    answers = iter(["y", ""])
+    answers = iter(["", "", "no"])
 
     monkeypatch.setattr(
         "builtins.input",
@@ -396,7 +400,8 @@ def test_empty_reader_after_batch_defaults_to_finish(
     assert result.success
     assert result.batches_processed == 1
     assert result.copied == 1
-    assert "No media mounted. Finish import session? [Y/n]:" not in output
+    assert "No new media is mounted." in output
+    assert output.count("Searching for photo media...") == 3
     assert "FINAL STATUS       : IMPORT SESSION RECONCILED" in output
 
 
@@ -423,7 +428,7 @@ def test_successful_batch_saves_active_session_state(
 
     monkeypatch.setattr(
         "builtins.input",
-        lambda _: "",
+        lambda _: "no",
     )
 
     result = run_import_media_session(
@@ -589,7 +594,7 @@ def test_loaded_session_continues_same_session_id(
 
     monkeypatch.setattr(
         "builtins.input",
-        lambda _: "",
+        lambda _: "no",
     )
 
     restored = load_import_media_session(state_path)
@@ -630,7 +635,7 @@ def test_import_media_session_forwards_progress_callback(
     )
     monkeypatch.setattr(
         "builtins.input",
-        lambda _: "",
+        lambda _: "no",
     )
 
     seen: list[

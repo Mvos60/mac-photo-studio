@@ -98,11 +98,12 @@ def run_import_media_session(
             if not selection.empty:
                 print(
                     "Eject or unmount the processed media and "
-                    "insert the next source."
+                    "insert the next card from the same photo session."
                 )
 
                 answer = input(
-                    "Retry media search? [Y/n]: "
+                    "Press Enter to scan; type no only when all "
+                    "cards are imported: "
                 ).strip().lower()
 
                 if answer not in {"n", "no"}:
@@ -110,11 +111,18 @@ def run_import_media_session(
 
                 break
 
+            print(
+                "No new media is mounted. The next card from the "
+                "same photo session may still need to be inserted."
+            )
+            print("This includes a matching RAW or JPG card.")
+
             answer = input(
-                "No media mounted. Finish import session? [Y/n]: "
+                "Press Enter to scan; type no only when all "
+                "cards are imported: "
             ).strip().lower()
 
-            if answer in {"n", "no"}:
+            if answer not in {"n", "no"}:
                 continue
 
             break
@@ -181,15 +189,21 @@ def run_import_media_session(
         )
         print("MPS has finished reading the current media.")
         print(
-            "Eject or unmount the media before physical removal."
+            "Keep all cards from the same photo session together, "
+            "including a matching RAW or JPG card."
+        )
+        print(
+            "Eject or unmount the current card, then insert the "
+            "next card."
         )
         print()
 
         answer = input(
-            "Process another card or media source? [y/N]: "
+            "Press Enter to scan; type no only when all cards "
+            "are imported: "
         ).strip().lower()
 
-        if answer not in {"y", "yes"}:
+        if answer in {"n", "no"}:
             break
 
     if import_root is None:
