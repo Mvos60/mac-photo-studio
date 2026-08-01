@@ -354,3 +354,49 @@ def test_reused_cards_import_only_new_files_into_new_library(
     assert not (
         second_destination / "DSC0003.JPG"
     ).exists()
+
+def test_duplicate_only_batch_is_successful_noop(
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    settings = _settings(tmp_path)
+    selection = ImportMediaSelection(
+        sources=[
+            _card(root, jpeg=1),
+        ]
+    )
+
+    _write_photo(
+        root,
+        "DSC0001.JPG",
+        b"jpeg-photo",
+    )
+
+    first = process_import_media_batch(
+        selection,
+        ImportMediaSession(),
+        settings,
+        year=2026,
+        project="First",
+        day="Session",
+        session_id="MPS-SESSION-FIRST",
+    )
+
+    second = process_import_media_batch(
+        selection,
+        ImportMediaSession(),
+        settings,
+        year=2026,
+        project="Second",
+        day="Session",
+        session_id="MPS-SESSION-SECOND",
+    )
+
+    assert first.success
+    assert second.success
+    assert second.nothing_to_import is True
+    assert second.copied == 0
+    assert second.failed == 0
+    assert second.media_registered is False
+    assert second.verification is None
+    assert second.plan.destination.exists() is False

@@ -610,3 +610,125 @@ def test_loaded_session_continues_same_session_id(
     assert (destination / "DSC0001.ARW").exists()
     assert (destination / "DSC0001.JPG").exists()
     assert state_path.exists() is False
+
+
+def test_import_media_session_forwards_progress_callback(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "progress-card"
+    _write_photo(root, "DSC0099.ARW", b"raw-data")
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[
+                _card(root, raw=1),
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+
+    seen: list[
+        tuple[str, int, int, int, str]
+    ] = []
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Progress Test",
+        day="01-08-2026",
+        session_id="MPS-SESSION-PROGRESS",
+        progress_callback=lambda progress: seen.append(
+            (
+                progress.phase,
+                progress.current,
+                progress.total,
+                progress.percent,
+                progress.source.name,
+            )
+        ),
+    )
+
+    assert result.success
+    assert seen == [
+        ("checking", 0, 1, 0, "DSC0099.ARW"),
+        ("checking", 1, 1, 100, "DSC0099.ARW"),
+        ("copying", 0, 1, 0, "DSC0099.ARW"),
+        ("copying", 1, 1, 100, "DSC0099.ARW"),
+        ("provenance", 0, 1, 0, "DSC0099.ARW"),
+        ("provenance", 1, 1, 100, "DSC0099.ARW"),
+        ("verifying", 0, 1, 0, "01-08-2026"),
+        ("verifying", 1, 1, 100, "01-08-2026"),
+    ]
+
+def test_duplicate_only_media_finishes_cleanly(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+):
+    from mps.models.import_media_session import (
+        ImportMediaSession,
+    )
+    from mps.services.import_media_batch_processor import (
+        process_import_media_batch,
+    )
+
+    root = tmp_path / "reader"
+    settings = _settings(tmp_path)
+    selection = ImportMediaSelection(
+        sources=[
+            _card(root, jpeg=1),
+        ]
+    )
+
+    _write_photo(
+        root,
+        "DSC0001.JPG",
+        b"jpeg-photo",
+    )
+
+    first = process_import_media_batch(
+        selection,
+        ImportMediaSession(),
+        settings,
+        year=2026,
+        project="First",
+        day="Session",
+        session_id="MPS-SESSION-FIRST",
+    )
+
+    assert first.success
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        lambda current_settings: selection,
+    )
+
+    result = run_import_media_session(
+        settings,
+        year=2026,
+        project="Second",
+        day="Session",
+        session_id="MPS-SESSION-NOOP",
+    )
+
+    output = capsys.readouterr().out
+
+    assert result.success
+    assert result.completed is True
+    assert result.nothing_to_import is True
+    assert result.batches_processed == 0
+    assert result.copied == 0
+    assert result.failed == 0
+    assert "No new photo files found." in output
+    assert (
+        "All discovered photo files were already imported."
+        in output
+    )
+    assert "Media batch processing failed." not in output

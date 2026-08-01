@@ -308,6 +308,9 @@ def test_cli_import_command_runs_media_session(
     from mps.models.import_media_wizard_result import (
         ImportMediaWizardResult,
     )
+    from mps.services.import_progress_output import (
+        print_import_progress,
+    )
 
     called = []
 
@@ -400,6 +403,7 @@ def test_cli_import_command_runs_media_session(
                 / "state"
                 / "active_import_session.json"
             ),
+            "progress_callback": print_import_progress,
         }
     ]
     assert "Import Session Summary" in output

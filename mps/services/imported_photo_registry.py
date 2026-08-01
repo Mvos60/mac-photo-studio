@@ -7,7 +7,8 @@ from pathlib import Path
 from mps.services.provenance_index_writer import load_index
 
 _CHUNK_SIZE = 65536
-_INDEX_NAME = "certificate_index.json"
+_ACTIVE_INDEX_NAME = "certificate_index.json"
+_CULLING_SNAPSHOT_NAME = "certificate_index.before.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,19 +66,49 @@ def file_sha256(
     return digest.hexdigest()
 
 
+def _is_active_index(path: Path) -> bool:
+    return (
+        path.name == _ACTIVE_INDEX_NAME
+        and path.parent.name == "provenance"
+    )
+
+
+def _is_culling_snapshot(path: Path) -> bool:
+    return (
+        path.name == _CULLING_SNAPSHOT_NAME
+        and ".mps_quarantine" in path.parts
+        and "culling" in path.parts
+    )
+
+
 def _certificate_index_paths(
     photos_root: Path,
 ) -> list[Path]:
     if not photos_root.exists():
         return []
 
-    return sorted(
+    paths = [
         path
-        for path in photos_root.rglob(_INDEX_NAME)
+        for name in (
+            _ACTIVE_INDEX_NAME,
+            _CULLING_SNAPSHOT_NAME,
+        )
+        for path in photos_root.rglob(name)
         if (
             path.is_file()
-            and path.parent.name == "provenance"
+            and (
+                _is_active_index(path)
+                or _is_culling_snapshot(path)
+            )
         )
+    ]
+
+    return sorted(
+        paths,
+        key=lambda path: (
+            not _is_active_index(path),
+            str(path),
+        ),
     )
 
 
@@ -85,7 +116,11 @@ def load_imported_photo_registry(
     photos_root: str | Path,
 ) -> ImportedPhotoRegistry:
     root = Path(photos_root)
-    records: list[ImportedPhotoRecord] = []
+
+    records_by_sha256: dict[
+        str,
+        ImportedPhotoRecord,
+    ] = {}
 
     for index_path in _certificate_index_paths(root):
         try:
@@ -98,13 +133,18 @@ def load_imported_photo_registry(
             continue
 
         for entry in index.entries:
-            records.append(
-                ImportedPhotoRecord(
-                    sha256=entry.sha256,
-                    destination_path=entry.destination_path,
-                    certificate_path=entry.certificate_path,
-                    session_id=entry.session_id,
-                )
+            record = ImportedPhotoRecord(
+                sha256=entry.sha256,
+                destination_path=entry.destination_path,
+                certificate_path=entry.certificate_path,
+                session_id=entry.session_id,
             )
 
-    return ImportedPhotoRegistry(records)
+            records_by_sha256.setdefault(
+                record.sha256,
+                record,
+            )
+
+    return ImportedPhotoRegistry(
+        list(records_by_sha256.values())
+    )

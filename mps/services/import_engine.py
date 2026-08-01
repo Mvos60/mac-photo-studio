@@ -145,15 +145,40 @@ def _write_provenance_for_copies(
     manifest_path: Path,
     camera_model: str,
     copy_results: list[CopyResult],
+    progress_callback: Callable[
+        [ImportProgress],
+        None,
+    ] | None = None,
 ) -> None:
     certificate_index_path = index_path(import_root)
     certificate_index = load_or_create_index(
         certificate_index_path
     )
 
-    for result in copy_results:
-        if not result.success or result.checksum is None:
-            continue
+    verified_results = [
+        result
+        for result in copy_results
+        if (
+            result.success
+            and result.checksum is not None
+        )
+    ]
+    total = len(verified_results)
+
+    for item_number, result in enumerate(
+        verified_results,
+        start=1,
+    ):
+        if progress_callback is not None:
+            progress_callback(
+                ImportProgress(
+                    current=item_number - 1,
+                    total=total,
+                    source=result.source,
+                    destination=result.destination,
+                    phase="provenance",
+                )
+            )
 
         certificate = create_certificate(
             session_id=session_id,
@@ -185,6 +210,17 @@ def _write_provenance_for_copies(
             ingest_event,
             import_root,
         )
+
+        if progress_callback is not None:
+            progress_callback(
+                ImportProgress(
+                    current=item_number,
+                    total=total,
+                    source=result.source,
+                    destination=result.destination,
+                    phase="provenance",
+                )
+            )
 
     write_index(
         certificate_index,
@@ -244,10 +280,11 @@ def run_import(
         if progress_callback is not None:
             progress_callback(
                 ImportProgress(
-                    current=index,
+                    current=index - 1,
                     total=total,
                     source=operation.source,
                     destination=operation.destination,
+                    phase="copying",
                 )
             )
 
@@ -256,6 +293,17 @@ def run_import(
             operation.destination,
         )
         copy_results.append(result)
+
+        if progress_callback is not None:
+            progress_callback(
+                ImportProgress(
+                    current=index,
+                    total=total,
+                    source=operation.source,
+                    destination=operation.destination,
+                    phase="copying",
+                )
+            )
 
         if result.success:
             copied += 1
@@ -297,6 +345,7 @@ def run_import(
             manifest_path=resolved_manifest_path,
             camera_model=camera_model,
             copy_results=copy_results,
+            progress_callback=progress_callback,
         )
 
     if log_path is not None:

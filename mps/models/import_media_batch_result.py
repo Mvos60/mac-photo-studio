@@ -13,9 +13,13 @@ class ImportMediaBatchResult:
     failed: int
     verification: PostImportVerification | None
     media_registered: bool
+    nothing_to_import: bool = False
 
     @property
     def success(self) -> bool:
+        if self.nothing_to_import:
+            return self.failed == 0
+
         return (
             self.failed == 0
             and self.verification is not None

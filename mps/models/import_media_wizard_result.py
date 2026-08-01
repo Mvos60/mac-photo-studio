@@ -17,9 +17,16 @@ class ImportMediaWizardResult:
     failed: int
     completed: bool
     reconciliation: ImportMediaSessionReconciliation | None = None
+    nothing_to_import: bool = False
 
     @property
     def success(self) -> bool:
+        if self.nothing_to_import:
+            return (
+                self.completed
+                and self.failed == 0
+            )
+
         return (
             self.completed
             and self.batches_processed > 0

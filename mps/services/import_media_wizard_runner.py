@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
 from mps.config import Settings
 from mps.models.import_media_session import ImportMediaSession
+from mps.models.import_progress import ImportProgress
 from mps.models.import_media_wizard_result import (
     ImportMediaWizardResult,
 )
@@ -37,6 +39,7 @@ def run_import_media_session(
     session_id: str | None = None,
     session: ImportMediaSession | None = None,
     session_state_path: str | Path | None = None,
+    progress_callback: Callable[[ImportProgress], None] | None = None,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
 
@@ -124,10 +127,33 @@ def run_import_media_session(
             project=project,
             day=day,
             session_id=active_session_id,
+            progress_callback=progress_callback,
         )
 
         copied += result.copied
         failed += result.failed
+
+        if result.nothing_to_import:
+            print("No new photo files found.")
+            print(
+                "All discovered photo files were "
+                "already imported."
+            )
+
+            if state_path is not None:
+                state_path.unlink(
+                    missing_ok=True
+                )
+
+            return ImportMediaWizardResult(
+                session=active_session,
+                session_id=active_session_id,
+                batches_processed=batches_processed,
+                copied=copied,
+                failed=failed,
+                completed=True,
+                nothing_to_import=True,
+            )
 
         if not result.success:
             print("Media batch processing failed.")

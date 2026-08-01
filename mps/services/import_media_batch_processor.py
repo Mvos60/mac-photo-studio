@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 from mps.config import Settings
 from mps.models.import_media_batch_result import ImportMediaBatchResult
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_media_session import ImportMediaSession
+from mps.models.import_progress import ImportProgress
 from mps.services.camera_identifier import identify_camera_model
 from mps.services.import_engine import run_import
 from mps.services.import_media_batch_planner import (
@@ -11,6 +15,29 @@ from mps.services.import_media_batch_planner import (
 )
 from mps.services.import_media_session import add_media_to_session
 from mps.services.post_import_verifier import verify_import_root
+
+
+def _report_verification_progress(
+    callback: Callable[
+        [ImportProgress],
+        None,
+    ] | None,
+    *,
+    current: int,
+    destination: Path,
+) -> None:
+    if callback is None:
+        return
+
+    callback(
+        ImportProgress(
+            current=current,
+            total=1,
+            source=destination,
+            destination=destination,
+            phase="verifying",
+        )
+    )
 
 
 def process_import_media_batch(
@@ -22,6 +49,7 @@ def process_import_media_batch(
     project: str,
     day: str,
     session_id: str,
+    progress_callback: Callable[[ImportProgress], None] | None = None,
 ) -> ImportMediaBatchResult:
     """Copy and verify currently mounted media before registering it."""
 
@@ -31,6 +59,7 @@ def process_import_media_batch(
         year=year,
         project=project,
         day=day,
+        progress_callback=progress_callback,
     )
 
     if plan.decision.warnings:
@@ -49,6 +78,7 @@ def process_import_media_batch(
             failed=0,
             verification=None,
             media_registered=False,
+            nothing_to_import=not selection.empty,
         )
 
     first_source = plan.decision.copy_operations[0].source
@@ -57,6 +87,7 @@ def process_import_media_batch(
     result = run_import(
         plan.decision,
         dry_run=False,
+        progress_callback=progress_callback,
         log_path=plan.destination / "mps_import.log",
         write_provenance=True,
         camera_model=camera_model,
@@ -75,8 +106,20 @@ def process_import_media_batch(
             media_registered=False,
         )
 
+    _report_verification_progress(
+        progress_callback,
+        current=0,
+        destination=plan.destination,
+    )
+
     verification = verify_import_root(
         plan.destination,
+    )
+
+    _report_verification_progress(
+        progress_callback,
+        current=1,
+        destination=plan.destination,
     )
 
     if verification.safe_to_release:

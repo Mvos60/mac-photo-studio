@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from mps.config import Settings
 from mps.models.import_decision import CopyOperation, ImportDecision
 from mps.models.import_media_batch_plan import ImportMediaBatchPlan
 from mps.models.import_media_selection import ImportMediaSelection
+from mps.models.import_progress import ImportProgress
 from mps.services.imported_photo_registry import (
     file_sha256,
     load_imported_photo_registry,
@@ -67,27 +69,76 @@ def _photos_root(
     ).expanduser()
 
 
+def _report_checking_progress(
+    callback: Callable[
+        [ImportProgress],
+        None,
+    ] | None,
+    *,
+    current: int,
+    total: int,
+    source: Path,
+    photos_root: Path,
+) -> None:
+    if callback is None:
+        return
+
+    callback(
+        ImportProgress(
+            current=current,
+            total=total,
+            source=source,
+            destination=photos_root,
+            phase="checking",
+        )
+    )
+
+
 def _new_source_files(
     source_files: list[Path],
     photos_root: Path,
+    *,
+    progress_callback: Callable[
+        [ImportProgress],
+        None,
+    ] | None = None,
 ) -> list[Path]:
     registry = load_imported_photo_registry(
         photos_root
     )
 
     new_files: list[Path] = []
+    total = len(source_files)
 
-    for source in source_files:
+    for index, source in enumerate(
+        source_files,
+        start=1,
+    ):
+        _report_checking_progress(
+            progress_callback,
+            current=index - 1,
+            total=total,
+            source=source,
+            photos_root=photos_root,
+        )
+
         try:
             source_hash = file_sha256(source)
         except OSError:
             new_files.append(source)
-            continue
+        else:
+            if not registry.contains_hash(
+                source_hash
+            ):
+                new_files.append(source)
 
-        if registry.contains_hash(source_hash):
-            continue
-
-        new_files.append(source)
+        _report_checking_progress(
+            progress_callback,
+            current=index,
+            total=total,
+            source=source,
+            photos_root=photos_root,
+        )
 
     return new_files
 
@@ -114,6 +165,10 @@ def create_media_batch_plan(
     year: int,
     project: str,
     day: str,
+    progress_callback: Callable[
+        [ImportProgress],
+        None,
+    ] | None = None,
 ) -> ImportMediaBatchPlan:
     photos_root = _photos_root(settings)
 
@@ -132,6 +187,7 @@ def create_media_batch_plan(
     source_files = _new_source_files(
         discovered_files,
         photos_root,
+        progress_callback=progress_callback,
     )
 
     copy_operations = [

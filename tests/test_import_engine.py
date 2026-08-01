@@ -88,7 +88,9 @@ def test_import_engine_reports_progress(tmp_path):
 
     assert result.success
     assert seen == [
+        (0, 2, "source1.ARW"),
         (1, 2, "source1.ARW"),
+        (1, 2, "source1.JPG"),
         (2, 2, "source1.JPG"),
     ]
 
@@ -394,3 +396,45 @@ def test_import_engine_appends_sequential_batches_to_log(tmp_path):
     assert log.count("Mac Photo Studio Import Log") == 1
     assert log.count("Import Batch") == 1
     assert log.count("Summary") == 2
+
+def test_import_engine_reports_provenance_progress(
+    tmp_path: Path,
+):
+    decision = _decision(tmp_path)
+    seen = []
+
+    result = run_import(
+        decision,
+        dry_run=False,
+        progress_callback=seen.append,
+        write_provenance=True,
+        camera_model="Sony A7 III",
+        manifest_path=(
+            decision.destination
+            / "import_manifest.json"
+        ),
+        project="Progress",
+        day_session="Session",
+    )
+
+    assert result.success
+
+    phases = [
+        progress.phase
+        for progress in seen
+    ]
+
+    assert phases.count("copying") == 4
+    assert phases.count("provenance") == 4
+
+    provenance = [
+        progress
+        for progress in seen
+        if progress.phase == "provenance"
+    ]
+
+    assert [
+        progress.current
+        for progress in provenance
+    ] == [0, 1, 1, 2]
+    assert provenance[-1].percent == 100

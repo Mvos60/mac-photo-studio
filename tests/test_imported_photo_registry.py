@@ -165,3 +165,63 @@ def test_invalid_certificate_index_is_ignored(
     )
 
     assert registry.records == []
+
+def test_registry_loads_culling_snapshot_entries(
+    tmp_path: Path,
+):
+    photos_root = tmp_path / "Photos_Master"
+    import_root = (
+        photos_root
+        / "2026"
+        / "Existing"
+        / "Session"
+    )
+    quarantine = (
+        import_root
+        / ".mps_quarantine"
+        / "culling"
+        / "DSC0001"
+    )
+    quarantine.mkdir(parents=True)
+
+    known_hash = hashlib.sha256(
+        b"quarantined-photo"
+    ).hexdigest()
+
+    snapshot = {
+        "entries": [
+            {
+                "camera_model": "ILCE-7M3",
+                "certificate_id": "MPS-CERT-1",
+                "certificate_path": (
+                    "/photos/provenance/MPS-CERT-1.json"
+                ),
+                "created_at": "2026-07-15T08:00:00+00:00",
+                "destination_path": (
+                    "/photos/2026/Existing/Session/DSC0001.ARW"
+                ),
+                "provenance_id": "MPS-PROV-1",
+                "session_id": "MPS-SESSION-1",
+                "sha256": known_hash,
+            }
+        ]
+    }
+
+    (
+        quarantine
+        / "certificate_index.before.json"
+    ).write_text(
+        json.dumps(snapshot),
+        encoding="utf-8",
+    )
+
+    registry = load_imported_photo_registry(
+        photos_root
+    )
+
+    assert len(registry.records) == 1
+    assert registry.contains_hash(known_hash)
+    assert (
+        registry.find_by_hash(known_hash)
+        is not None
+    )

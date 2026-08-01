@@ -23,3 +23,13 @@ def test_import_progress_percent_with_zero_total():
     )
 
     assert progress.percent == 100
+
+def test_import_progress_phase_defaults_to_copying():
+    progress = ImportProgress(
+        current=1,
+        total=2,
+        source=Path("/tmp/source"),
+        destination=Path("/tmp/destination"),
+    )
+
+    assert progress.phase == "copying"

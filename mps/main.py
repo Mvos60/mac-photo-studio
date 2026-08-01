@@ -456,6 +456,10 @@ def run_real_import(
 def run_interactive_import_command() -> int:
     from datetime import datetime
 
+    from mps.services.import_progress_output import (
+        print_import_progress,
+    )
+
     settings = load_settings()
     state_path = (
         USER_STATE_DIR
@@ -544,6 +548,7 @@ def run_interactive_import_command() -> int:
         day=day,
         session=restored_session,
         session_state_path=state_path,
+        progress_callback=print_import_progress,
     )
 
     print()

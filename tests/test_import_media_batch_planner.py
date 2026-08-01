@@ -422,3 +422,132 @@ def test_trash_photo_files_are_not_planned(
         plan.decision.copy_operations[0].source
         == real_file
     )
+
+def test_quarantined_previously_imported_file_is_not_planned(
+    tmp_path: Path,
+):
+    photos_root = tmp_path / "Photos_Master"
+    card_root = tmp_path / "card"
+    content = b"quarantined-photo"
+
+    import_root = (
+        photos_root
+        / "2026"
+        / "Existing"
+        / "Session"
+    )
+    quarantine = (
+        import_root
+        / ".mps_quarantine"
+        / "culling"
+        / "DSC0001"
+    )
+    quarantine.mkdir(parents=True)
+
+    known_hash = hashlib.sha256(
+        content
+    ).hexdigest()
+
+    snapshot = {
+        "entries": [
+            {
+                "camera_model": "ILCE-7M3",
+                "certificate_id": "MPS-CERT-1",
+                "certificate_path": (
+                    "/photos/provenance/MPS-CERT-1.json"
+                ),
+                "created_at": "2026-07-15T08:00:00+00:00",
+                "destination_path": (
+                    "/photos/2026/Existing/Session/DSC0001.ARW"
+                ),
+                "provenance_id": "MPS-PROV-1",
+                "session_id": "MPS-SESSION-1",
+                "sha256": known_hash,
+            }
+        ]
+    }
+
+    (
+        quarantine
+        / "certificate_index.before.json"
+    ).write_text(
+        json.dumps(snapshot),
+        encoding="utf-8",
+    )
+
+    _write_photo(
+        card_root,
+        "DSC0001.ARW",
+        content,
+    )
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(
+            sources=[
+                _card(card_root, raw=1),
+            ]
+        ),
+        _settings(tmp_path),
+        year=2026,
+        project="NewProject",
+        day="NewSession",
+    )
+
+    assert plan.total_files == 0
+    assert plan.estimated_size_bytes == 0
+    assert plan.decision.copy_operations == []
+    assert plan.decision.warnings == []
+
+def test_planner_reports_duplicate_checking_progress(
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+
+    _write_photo(
+        root,
+        "DSC0001.ARW",
+        b"raw-photo",
+    )
+    _write_photo(
+        root,
+        "DSC0001.JPG",
+        b"jpeg-photo",
+    )
+
+    seen = []
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(
+            sources=[
+                _card(
+                    root,
+                    raw=1,
+                    jpeg=1,
+                ),
+            ]
+        ),
+        _settings(tmp_path),
+        year=2026,
+        project="Progress",
+        day="Session",
+        progress_callback=seen.append,
+    )
+
+    assert plan.total_files == 2
+    assert [
+        progress.phase
+        for progress in seen
+    ] == ["checking"] * 4
+    assert [
+        (
+            progress.current,
+            progress.total,
+            progress.percent,
+        )
+        for progress in seen
+    ] == [
+        (0, 2, 0),
+        (1, 2, 50),
+        (1, 2, 50),
+        (2, 2, 100),
+    ]
