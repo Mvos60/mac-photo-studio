@@ -447,6 +447,8 @@ def test_cli_import_resumes_verified_saved_session(
     save_import_media_session(saved, state_path)
 
     called = []
+    validator_calls = []
+    settings = _settings(tmp_path)
 
     monkeypatch.setattr(
         "mps.main.USER_STATE_DIR",
@@ -454,7 +456,7 @@ def test_cli_import_resumes_verified_saved_session(
     )
     monkeypatch.setattr(
         "mps.main.load_settings",
-        lambda: _settings(tmp_path),
+        lambda: settings,
     )
     monkeypatch.setattr(
         "mps.main.prompt_year",
@@ -468,9 +470,14 @@ def test_cli_import_resumes_verified_saved_session(
         "mps.main.prompt_day",
         lambda: "03_Slovenia",
     )
+
+    def validate_resume(session, root, *, settings):
+        validator_calls.append((session, root, settings))
+        return True
+
     monkeypatch.setattr(
         "mps.main.can_resume_import_media_session",
-        lambda session, root: True,
+        validate_resume,
     )
 
     def run_session(settings, **kwargs):
@@ -502,6 +509,19 @@ def test_cli_import_resumes_verified_saved_session(
         "MPS-SESSION-RESUME"
     )
     assert called[0]["session_state_path"] == state_path
+    assert validator_calls == [
+        (
+            saved,
+            tmp_path
+            / "Photos_Master"
+            / "2026"
+            / "Adriatic"
+            / "03_Slovenia",
+            settings,
+        )
+    ]
+    assert validator_calls[0][0] is not saved
+    assert validator_calls[0][2] is settings
     assert "Resuming verified import session." in output
 
 
@@ -551,7 +571,7 @@ def test_cli_import_blocks_unsafe_saved_session(
     )
     monkeypatch.setattr(
         "mps.main.can_resume_import_media_session",
-        lambda session, root: False,
+        lambda session, root, *, settings: False,
     )
     monkeypatch.setattr(
         "mps.main.run_import_media_session",
@@ -1932,3 +1952,99 @@ def test_cli_structured_destination_without_description_shows_dash(
     assert "Project     : MPS GUI Test" in output
     assert "Description : —" in output
     assert "Day/session" not in output
+
+
+@pytest.mark.parametrize(
+    "state_bytes",
+    [
+        b"{malformed",
+        json.dumps(
+            {
+                "session_id": "MPS-SESSION-BAD",
+                "destination": {
+                    "year": 2026,
+                },
+            }
+        ).encode("utf-8"),
+        json.dumps(
+            {
+                "session_id": "MPS-SESSION-BAD",
+                "destination": {
+                    "year": 2026,
+                    "month_day": "08-01",
+                    "project": "Unsafe/Project",
+                    "description": "",
+                    "import_root": "/invalid/root",
+                },
+            }
+        ).encode("utf-8"),
+    ],
+)
+def test_cli_import_reports_invalid_active_state_without_traceback(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    state_bytes: bytes,
+):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_path = state_dir / "active_import_session.json"
+    state_path.write_bytes(state_bytes)
+    validator_calls = []
+    runner_calls = []
+    resume_prompts = []
+    settings = _settings(tmp_path)
+
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        state_dir,
+    )
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda *args, **kwargs: validator_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: resume_prompts.append(prompt),
+    )
+
+    exit_code = main(
+        [
+            "import",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-01",
+            "--destination-project",
+            "Adriatic",
+            "--destination-description",
+            "Ljubljana",
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert (
+        "Saved import session cannot be resumed safely.\n"
+        "The saved session state is invalid or could not be read."
+        in captured.out
+    )
+    assert "Traceback" not in captured.out
+    assert "Traceback" not in captured.err
+    assert validator_calls == []
+    assert runner_calls == []
+    assert resume_prompts == []
+    assert state_path.read_bytes() == state_bytes

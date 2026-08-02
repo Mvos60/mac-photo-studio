@@ -518,9 +518,19 @@ def run_interactive_import_command(
     restored_session = None
 
     if state_path.exists():
-        restored_session = load_import_media_session(
-            state_path
-        )
+        try:
+            restored_session = load_import_media_session(
+                state_path
+            )
+        except (OSError, ValueError):
+            print(
+                "Saved import session cannot be resumed safely."
+            )
+            print(
+                "The saved session state is invalid or "
+                "could not be read."
+            )
+            return 1
 
         print(
             "An interrupted import session was found."
@@ -544,6 +554,7 @@ def run_interactive_import_command(
         if not can_resume_import_media_session(
             restored_session,
             import_root,
+            settings=settings,
         ):
             print(
                 "Saved import session cannot be resumed safely."
