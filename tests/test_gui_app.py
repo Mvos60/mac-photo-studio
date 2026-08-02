@@ -1,3 +1,6 @@
+import pytest
+
+from mps.gui import app as app_module
 from mps.gui.app import (
     build_cli_command,
     build_status_items,
@@ -5,6 +8,10 @@ from mps.gui.app import (
     open_path,
     resolve_terminal_command,
     run_gui,
+    start_import,
+)
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
 )
 from mps.services.app_resolver import (
     ApplicationResolution,
@@ -430,3 +437,112 @@ def test_open_path_reports_open_failure(
             f"open failed\n\nLocation:\n{tmp_path}",
         )
     ]
+
+
+def test_import_action_cancel_starts_no_terminal(
+    tmp_path,
+    monkeypatch,
+):
+    parent = object()
+    photos_root = tmp_path / "Photos_Master"
+    selector_calls = []
+    launches = []
+
+    monkeypatch.setattr(
+        app_module,
+        "get_photo_library",
+        lambda: photos_root,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_destination",
+        lambda **kwargs: selector_calls.append(kwargs) or None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "launch_cli",
+        lambda arguments: launches.append(arguments),
+    )
+
+    start_import(parent)
+
+    assert selector_calls == [
+        {
+            "parent": parent,
+            "photos_root": photos_root,
+        }
+    ]
+    assert launches == []
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Ljubljana Old Town",
+        "",
+    ],
+)
+def test_import_action_launches_one_structured_command(
+    description,
+    tmp_path,
+    monkeypatch,
+):
+    parent = object()
+    photos_root = tmp_path / "Alternate Photos"
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic Journey",
+        description=description,
+    )
+    selector_calls = []
+    launches = []
+
+    monkeypatch.setattr(
+        app_module,
+        "get_photo_library",
+        lambda: photos_root,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_destination",
+        lambda **kwargs: (
+            selector_calls.append(kwargs)
+            or destination_selection
+        ),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "launch_cli",
+        lambda arguments: launches.append(arguments),
+    )
+
+    start_import(parent)
+
+    assert selector_calls == [
+        {
+            "parent": parent,
+            "photos_root": photos_root,
+        }
+    ]
+    assert launches == [
+        [
+            "import",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-01",
+            "--destination-project",
+            "Adriatic Journey",
+            "--destination-description",
+            description,
+        ]
+    ]
+
+
+def test_import_button_uses_destination_import_action():
+    import inspect
+
+    source = inspect.getsource(run_gui)
+
+    assert "command=lambda: start_import(root)" in source

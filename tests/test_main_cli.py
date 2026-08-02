@@ -1,5 +1,8 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from mps.config import Settings
 from mps.main import main
@@ -406,6 +409,9 @@ def test_cli_import_command_runs_media_session(
             "progress_callback": print_import_progress,
         }
     ]
+    assert "Year        : 2026" in output
+    assert "Project     : Adriatic" in output
+    assert "Day/session : 03_Slovenia" in output
     assert "Import Session Summary" in output
     assert "Batches processed : 2" in output
     assert "Files copied      : 4" in output
@@ -1650,3 +1656,279 @@ def test_cli_confirm_culling_rejects_unknown_candidate(
     assert exit_code == 1
     assert "NOT AN ACTIONABLE CULLING ITEM" in output
     assert "No files were changed." in output
+
+
+def test_cli_structured_destination_skips_prompts_and_forwards_selection(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    settings = _settings(tmp_path)
+    destination_calls = []
+    session_calls = []
+    prompt_calls = []
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: prompt_calls.append(("year", default)),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: prompt_calls.append(("project",)),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: prompt_calls.append(("day",)),
+    )
+
+    def destination(received_settings, **kwargs):
+        destination_calls.append(
+            (received_settings, kwargs)
+        )
+        return (
+            tmp_path
+            / "Photos_Master"
+            / "2026"
+            / "08"
+            / "01_Ljubljana"
+            / "Adriatic"
+        )
+
+    def run_session(received_settings, **kwargs):
+        session_calls.append(
+            (received_settings, kwargs)
+        )
+        return SimpleNamespace(
+            batches_processed=2,
+            copied=2,
+            failed=0,
+            completed=True,
+            success=True,
+        )
+
+    monkeypatch.setattr(
+        "mps.main.media_import_destination",
+        destination,
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        run_session,
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "",
+    )
+
+    exit_code = main(
+        [
+            "import",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-01",
+            "--destination-project",
+            "Adriatic",
+            "--destination-description",
+            "Ljubljana",
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert prompt_calls == []
+    assert "Year        : 2026" in output
+    assert "Date        : 08-01" in output
+    assert "Project     : Adriatic" in output
+    assert "Description : Ljubljana" in output
+    assert "Day/session" not in output
+    assert len(destination_calls) == 1
+    assert len(session_calls) == 1
+
+    destination_selection = destination_calls[0][1][
+        "destination_selection"
+    ]
+    forwarded_selection = session_calls[0][1][
+        "destination_selection"
+    ]
+
+    assert forwarded_selection is destination_selection
+    assert destination_selection.year == 2026
+    assert destination_selection.month_day == "08-01"
+    assert destination_selection.project == "Adriatic"
+    assert destination_selection.description == "Ljubljana"
+    assert destination_calls[0] == (
+        settings,
+        {
+            "year": 2026,
+            "project": "Adriatic",
+            "day": "08-01_Ljubljana",
+            "destination_selection": destination_selection,
+        },
+    )
+    assert session_calls[0][0] is settings
+    assert session_calls[0][1]["year"] == 2026
+    assert session_calls[0][1]["project"] == "Adriatic"
+    assert session_calls[0][1]["day"] == "08-01_Ljubljana"
+
+
+@pytest.mark.parametrize(
+    "destination_arguments",
+    [
+        [
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "02-30",
+            "--destination-project",
+            "Adriatic",
+            "--destination-description",
+            "",
+        ],
+        [
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-01",
+            "--destination-project",
+            "Unsafe/Project",
+            "--destination-description",
+            "",
+        ],
+    ],
+)
+def test_cli_invalid_structured_destination_stops_before_import_work(
+    destination_arguments,
+    monkeypatch,
+):
+    work = []
+
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: work.append("settings"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: work.append("year"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: work.append("project"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: work.append("day"),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: work.append("import"),
+    )
+
+    with pytest.raises(SystemExit):
+        main(["import", *destination_arguments])
+
+    assert work == []
+
+
+@pytest.mark.parametrize("argument_mask", range(1, 15))
+def test_cli_rejects_every_incomplete_destination_combination(
+    argument_mask,
+    monkeypatch,
+):
+    options = [
+        ("--destination-year", "2026"),
+        ("--destination-month-day", "08-01"),
+        ("--destination-project", "Adriatic"),
+        ("--destination-description", ""),
+    ]
+    arguments = ["import"]
+
+    for index, option in enumerate(options):
+        if argument_mask & (1 << index):
+            arguments.extend(option)
+
+    work = []
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: work.append("settings"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: work.append("year"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: work.append("project"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: work.append("day"),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: work.append("import"),
+    )
+
+    with pytest.raises(SystemExit):
+        main(arguments)
+
+    assert work == []
+
+
+def test_cli_structured_destination_without_description_shows_dash(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        tmp_path / "state",
+    )
+    monkeypatch.setattr(
+        "mps.main.media_import_destination",
+        lambda settings, **kwargs: tmp_path / "destination",
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: pytest.fail(
+            "Import runner must not start after cancellation"
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: "n",
+    )
+
+    exit_code = main(
+        [
+            "import",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-02",
+            "--destination-project",
+            "MPS GUI Test",
+            "--destination-description",
+            "",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Year        : 2026" in output
+    assert "Date        : 08-02" in output
+    assert "Project     : MPS GUI Test" in output
+    assert "Description : —" in output
+    assert "Day/session" not in output

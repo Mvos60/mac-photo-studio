@@ -10,6 +10,9 @@ from mps.constants import USER_STATE_DIR
 from mps.exceptions import MacPhotoStudioError
 from mps.gui.app import run_gui
 from mps.logger import configure_logging
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.services.camera_identifier import identify_camera_model
 from mps.services.card_scanner import format_bytes, scan_cards, scan_path
 from mps.services.cli_output import print_card_summary, print_decision_preview
@@ -453,7 +456,9 @@ def run_real_import(
     return 0 if reconciliation.reconciled else 1
 
 
-def run_interactive_import_command() -> int:
+def run_interactive_import_command(
+    destination_selection: ImportDestinationSelection | None = None,
+) -> int:
     from datetime import datetime
 
     from mps.services.import_progress_output import (
@@ -470,24 +475,44 @@ def run_interactive_import_command() -> int:
     print("==============================")
     print()
 
-    year = prompt_year(datetime.now().year)
-    project = prompt_project()
-    day = prompt_day()
-
-    import_root = media_import_destination(
-        settings,
-        year=year,
-        project=project,
-        day=day,
-    )
+    if destination_selection is None:
+        year = prompt_year(datetime.now().year)
+        project = prompt_project()
+        day = prompt_day()
+        import_root = media_import_destination(
+            settings,
+            year=year,
+            project=project,
+            day=day,
+        )
+    else:
+        year = destination_selection.year
+        project = destination_selection.project
+        day = destination_selection.day_session
+        import_root = media_import_destination(
+            settings,
+            year=year,
+            project=project,
+            day=day,
+            destination_selection=destination_selection,
+        )
 
     print()
     print("Import Session")
     print("==============")
     print()
     print(f"Year        : {year}")
-    print(f"Project     : {project}")
-    print(f"Day/session : {day}")
+
+    if destination_selection is None:
+        print(f"Project     : {project}")
+        print(f"Day/session : {day}")
+    else:
+        print(f"Date        : {destination_selection.month_day}")
+        print(f"Project     : {project}")
+        print(
+            "Description : "
+            f"{destination_selection.description or '—'}"
+        )
     print()
 
     restored_session = None
@@ -541,14 +566,23 @@ def run_interactive_import_command() -> int:
             print("Import cancelled.")
             return 0
 
+    session_arguments = {
+        "year": year,
+        "project": project,
+        "day": day,
+        "session": restored_session,
+        "session_state_path": state_path,
+        "progress_callback": print_import_progress,
+    }
+
+    if destination_selection is not None:
+        session_arguments["destination_selection"] = (
+            destination_selection
+        )
+
     result = run_import_media_session(
         settings,
-        year=year,
-        project=project,
-        day=day,
-        session=restored_session,
-        session_state_path=state_path,
-        progress_callback=print_import_progress,
+        **session_arguments,
     )
 
     print()
@@ -938,16 +972,54 @@ def main(argv: list[str] | None = None) -> int:
         nargs=2,
         metavar=("SOURCE", "DESTINATION"),
     )
+    parser.add_argument("--destination-year", type=int)
+    parser.add_argument("--destination-month-day")
+    parser.add_argument("--destination-project")
+    parser.add_argument("--destination-description")
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
+
+    destination_values = (
+        args.destination_year,
+        args.destination_month_day,
+        args.destination_project,
+        args.destination_description,
+    )
+    supplied_destination_values = tuple(
+        value is not None
+        for value in destination_values
+    )
+    destination_selection = None
+
+    if any(supplied_destination_values):
+        if args.command != "import":
+            parser.error(
+                "destination arguments are only valid for the import command"
+            )
+        if not all(supplied_destination_values):
+            parser.error(
+                "all four destination arguments are required together"
+            )
+
+        try:
+            destination_selection = ImportDestinationSelection(
+                year=args.destination_year,
+                month_day=args.destination_month_day,
+                project=args.destination_project,
+                description=args.destination_description,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
 
     logger = configure_logging()
     logger.info("Mac Photo Studio starting")
 
     try:
         if args.command == "import":
-            return run_interactive_import_command()
+            return run_interactive_import_command(
+                destination_selection=destination_selection,
+            )
         if args.command == "darktable-complete-export":
             if len(args.command_args) != 2:
                 parser.error(

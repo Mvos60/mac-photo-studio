@@ -11,6 +11,9 @@ from typing import Callable
 from mps.config import load_settings
 from mps.constants import ACTIVE_IMPORT_SESSION
 from mps.gui.culling_review import show_culling_review
+from mps.gui.import_destination_selector import (
+    choose_import_destination,
+)
 from mps.gui.quarantine_manager import show_quarantine_manager
 from mps.gui.verify_photograph import show_verify_photograph
 from mps.gui.photo_history import (
@@ -135,6 +138,30 @@ def launch_cli(arguments: list[str]) -> None:
                 f"Command:\n{cli_command}"
             ),
         )
+
+
+def start_import(parent: tk.Misc) -> None:
+    selection = choose_import_destination(
+        parent=parent,
+        photos_root=get_photo_library(),
+    )
+
+    if selection is None:
+        return
+
+    launch_cli(
+        [
+            "import",
+            "--destination-year",
+            str(selection.year),
+            "--destination-month-day",
+            selection.month_day,
+            "--destination-project",
+            selection.project,
+            "--destination-description",
+            selection.description,
+        ]
+    )
 
 
 def open_path(path: Path) -> None:
@@ -510,7 +537,7 @@ def run_gui() -> None:
     ttk.Button(
         import_frame,
         text="📥  Import Photographs",
-        command=lambda: launch_cli(["import"]),
+        command=lambda: start_import(root),
         style="MPS.Primary.TButton",
     ).grid(
         row=1,
