@@ -2,10 +2,12 @@ import pytest
 
 from mps.gui import app as app_module
 from mps.gui.app import (
+    bind_system_status_refresh,
     build_cli_command,
     build_status_items,
     launch_cli,
     open_path,
+    render_system_status,
     resolve_terminal_command,
     run_gui,
     start_import,
@@ -176,6 +178,127 @@ def test_status_items_show_photo_archive_path_on_own_line(
         "green",
         f"Photo archive found:\n{tmp_path}",
     ) in items
+
+
+def test_system_status_refresh_removes_interrupted_session(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "active_import_session.json"
+    state_path.write_text("active", encoding="utf-8")
+    monkeypatch.setattr(
+        app_module,
+        "ACTIVE_IMPORT_SESSION",
+        state_path,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_photo_library",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_settings",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "resolve_application",
+        lambda *args: ApplicationResolution(
+            name="test",
+            found=True,
+            method="test",
+            command="/opt/test",
+            message="test",
+        ),
+    )
+
+    created = []
+
+    class Widget:
+        def __init__(self, _parent, **kwargs):
+            self.kwargs = kwargs
+            self.destroyed = False
+            created.append(self)
+
+        def grid(self, **kwargs):
+            return self
+
+        def destroy(self):
+            self.destroyed = True
+
+    class Status:
+        def __init__(self):
+            self.children = []
+
+        def winfo_children(self):
+            children = self.children
+            self.children = []
+            return children
+
+    status = Status()
+    monkeypatch.setattr(app_module.tk, "Label", Widget)
+    monkeypatch.setattr(app_module.ttk, "Label", Widget)
+
+    def render():
+        start = len(created)
+        render_system_status(
+            status,
+            ready_font=("ready",),
+            status_font=("status",),
+            body_font=("body",),
+        )
+        status.children = created[start:]
+
+    render()
+    first_texts = [widget.kwargs.get("text") for widget in created]
+
+    assert "An interrupted import session is available" in first_texts
+    assert "ATTENTION RECOMMENDED" in first_texts
+
+    first_widgets = list(status.children)
+    state_path.unlink()
+    render()
+    refreshed_texts = [
+        widget.kwargs.get("text")
+        for widget in status.children
+    ]
+
+    assert all(widget.destroyed for widget in first_widgets)
+    assert "An interrupted import session is available" not in refreshed_texts
+    assert "No interrupted import session" in refreshed_texts
+    assert "READY FOR IMPORT" in refreshed_texts
+    assert "Everything looks ready." in refreshed_texts
+
+
+def test_focus_restore_schedules_exactly_one_status_refresh():
+    callbacks = []
+    bindings = []
+    refreshes = []
+
+    class Root:
+        def bind(self, sequence, callback):
+            bindings.append((sequence, callback))
+
+        def after_idle(self, callback):
+            callbacks.append(callback)
+
+    bind_system_status_refresh(
+        Root(),
+        lambda: refreshes.append(True),
+    )
+
+    assert len(bindings) == 1
+    assert bindings[0][0] == "<FocusIn>"
+
+    focus_callback = bindings[0][1]
+    focus_callback(object())
+    focus_callback(object())
+
+    assert len(callbacks) == 1
+    callbacks.pop()()
+    assert refreshes == [True]
+
 
 def test_start_screen_uses_consistent_action_labels():
     import inspect

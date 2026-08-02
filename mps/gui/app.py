@@ -303,6 +303,131 @@ def build_status_items() -> list[tuple[str, str]]:
     return items
 
 
+def render_system_status(
+    status: ttk.LabelFrame,
+    *,
+    ready_font: tuple,
+    status_font: tuple,
+    body_font: tuple,
+) -> None:
+    for child in status.winfo_children():
+        child.destroy()
+
+    status_items = build_status_items()
+    overall_ready = all(
+        level == "green"
+        for level, _ in status_items
+    )
+    overall_level = "green" if overall_ready else "amber"
+    indicator_colours = {
+        "green": "#2e7d32",
+        "amber": "#b26a00",
+        "red": "#b3261e",
+    }
+
+    tk.Label(
+        status,
+        text="●",
+        font=("Sans", 18, "bold"),
+        foreground=indicator_colours[overall_level],
+    ).grid(
+        row=0,
+        column=0,
+        sticky="n",
+        padx=(0, 12),
+        pady=(2, 10),
+    )
+
+    ttk.Label(
+        status,
+        text=(
+            "READY FOR IMPORT"
+            if overall_ready
+            else "ATTENTION RECOMMENDED"
+        ),
+        font=ready_font,
+        anchor="w",
+    ).grid(
+        row=0,
+        column=1,
+        sticky="ew",
+        pady=(2, 10),
+    )
+
+    for row, (level, message) in enumerate(
+        status_items,
+        start=1,
+    ):
+        tk.Label(
+            status,
+            text="●",
+            font=("Sans", 13, "bold"),
+            foreground=indicator_colours[level],
+        ).grid(
+            row=row,
+            column=0,
+            sticky="n",
+            padx=(0, 12),
+            pady=4,
+        )
+
+        ttk.Label(
+            status,
+            text=message,
+            font=status_font,
+            anchor="w",
+            justify="left",
+            wraplength=430,
+        ).grid(
+            row=row,
+            column=1,
+            sticky="ew",
+            pady=4,
+        )
+
+    ttk.Label(
+        status,
+        text=(
+            "Everything looks ready."
+            if overall_ready
+            else "Review the amber or red items before importing."
+        ),
+        font=body_font,
+        justify="left",
+        anchor="w",
+    ).grid(
+        row=len(status_items) + 1,
+        column=0,
+        columnspan=2,
+        sticky="ew",
+        pady=(10, 2),
+    )
+
+
+def bind_system_status_refresh(
+    root: tk.Misc,
+    refresh: Callable[[], None],
+) -> None:
+    refresh_pending = False
+
+    def on_focus_in(_event: tk.Event) -> None:
+        nonlocal refresh_pending
+
+        if refresh_pending:
+            return
+
+        refresh_pending = True
+
+        def run_refresh() -> None:
+            nonlocal refresh_pending
+            refresh_pending = False
+            refresh()
+
+        root.after_idle(run_refresh)
+
+    root.bind("<FocusIn>", on_focus_in)
+
+
 def run_gui() -> None:
     root = tk.Tk()
     root.title("Mac Photo Studio")
@@ -425,102 +550,16 @@ def run_gui() -> None:
     )
     status.columnconfigure(1, weight=1)
 
-    status_items = build_status_items()
-
-    overall_ready = all(
-        level == "green"
-        for level, _ in status_items
-    )
-
-    overall_level = (
-        "green"
-        if overall_ready
-        else "amber"
-    )
-
-    indicator_colours = {
-        "green": "#2e7d32",
-        "amber": "#b26a00",
-        "red": "#b3261e",
-    }
-
-    tk.Label(
-        status,
-        text="●",
-        font=("Sans", 18, "bold"),
-        foreground=indicator_colours[overall_level],
-    ).grid(
-        row=0,
-        column=0,
-        sticky="n",
-        padx=(0, 12),
-        pady=(2, 10),
-    )
-
-    ttk.Label(
-        status,
-        text=(
-            "READY FOR IMPORT"
-            if overall_ready
-            else "ATTENTION RECOMMENDED"
-        ),
-        font=ready_font,
-        anchor="w",
-    ).grid(
-        row=0,
-        column=1,
-        sticky="ew",
-        pady=(2, 10),
-    )
-
-    for row, (level, message) in enumerate(
-        status_items,
-        start=1,
-    ):
-        tk.Label(
+    def refresh_system_status() -> None:
+        render_system_status(
             status,
-            text="●",
-            font=("Sans", 13, "bold"),
-            foreground=indicator_colours[level],
-        ).grid(
-            row=row,
-            column=0,
-            sticky="n",
-            padx=(0, 12),
-            pady=4,
+            ready_font=ready_font,
+            status_font=status_font,
+            body_font=body_font,
         )
 
-        ttk.Label(
-            status,
-            text=message,
-            font=status_font,
-            anchor="w",
-            justify="left",
-            wraplength=430,
-        ).grid(
-            row=row,
-            column=1,
-            sticky="ew",
-            pady=4,
-        )
-
-    ttk.Label(
-        status,
-        text=(
-            "Everything looks ready."
-            if overall_ready
-            else "Review the amber or red items before importing."
-        ),
-        font=body_font,
-        justify="left",
-        anchor="w",
-    ).grid(
-        row=len(status_items) + 1,
-        column=0,
-        columnspan=2,
-        sticky="ew",
-        pady=(10, 2),
-    )
+    refresh_system_status()
+    bind_system_status_refresh(root, refresh_system_status)
 
     import_frame = ttk.LabelFrame(
         content,
