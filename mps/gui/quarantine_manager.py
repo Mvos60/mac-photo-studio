@@ -38,16 +38,6 @@ def format_size(value: int) -> str:
 
 
 
-def photo_library_for_import_root(import_root: Path) -> Path:
-    root = import_root.expanduser()
-    parents = root.parents
-    if len(parents) >= 3:
-        return parents[2]
-    if len(parents) >= 1:
-        return parents[-1]
-    return root
-
-
 def quarantine_folder_for_import_root(import_root: Path) -> Path:
     return import_root.expanduser() / ".mps_quarantine" / "culling"
 
@@ -74,11 +64,10 @@ class QuarantineManagerDialog:
         self,
         parent: tk.Misc,
         import_root: Path,
+        photo_library: Path,
     ) -> None:
         self._import_root = import_root.expanduser()
-        self._photo_library = photo_library_for_import_root(
-            self._import_root
-        )
+        self._photo_library = photo_library.expanduser()
         self._quarantine_folder = quarantine_folder_for_import_root(
             self._import_root
         )
@@ -1150,15 +1139,17 @@ class QuarantineManagerDialog:
 def show_quarantine_manager(
     parent: tk.Misc,
 ) -> None:
+    photo_library = get_photo_library()
     selected = choose_import_session(
         parent=parent,
-        photo_library=get_photo_library(),
+        photo_library=photo_library,
         title="Choose the photo shoot to review",
     )
     if selected is None:
         return
 
     QuarantineManagerDialog(
-        parent,
-        selected,
+        parent=parent,
+        import_root=selected,
+        photo_library=photo_library,
     )
