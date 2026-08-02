@@ -32,7 +32,7 @@ Camera media
 
 - RAW and JPEG camera-card discovery
 - RAW/JPEG pairing
-- Year/project/day destination layout
+- Calendar-first destination layout
 - SHA-256 verified copying
 - Cross-library duplicate-import prevention
 - Removable-media trash and system-directory exclusion
@@ -82,16 +82,19 @@ mac-photo-studio --health
 mac-photo-studio import
 ```
 
-Mac Photo Studio 0.2.0 uses:
+The current calendar-first import destination is:
 
 ```text
-Photos_Master/
-└── YEAR/
-    └── PROJECT/
-        └── DAY_SESSION/
+PHOTOS_ROOT/YEAR/MM/DD[_DESCRIPTION]/PROJECT
 ```
 
-A calendar-oriented year/month/date-description layout is planned for 0.2.1 development.
+For example:
+
+```text
+/home/mac/Pictures/2026/08/02_Ljubljana/Adriatic
+```
+
+RAW and JPG cards in one photo session reuse the exact same destination. When an active session exists, the GUI and CLI offer Resume, Start new, or Cancel. Resume reuses the persisted structured destination; Start new uses the calendar-first selector and requires explicit `START NEW` confirmation; Cancel leaves state unchanged. Import progress still runs in a terminal; Sprint 015.14 covers the future fully native import window.
 
 ## Read-only card scan
 
@@ -210,5 +213,5 @@ Current release-candidate capabilities include:
 Current release-candidate test suite:
 
 ```text
-558 passed
+745 passed
 ```

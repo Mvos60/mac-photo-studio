@@ -1,8 +1,8 @@
 # Import Manifest
 
-Sprint 008.3 introduces the first import manifest layer for Mac Photo Studio.
-
-The manifest is a permanent JSON record of an import session. It is the first building block of the future Photo Provenance Certificate system.
+The import manifest is the permanent JSON record produced by the verified
+import pipeline for one import session. It is part of the Photo Provenance
+Certificate and resume-validation evidence.
 
 Each manifest stores:
 
@@ -17,10 +17,7 @@ Each manifest stores:
 - action and status
 - file count and total bytes
 
-Manifests are written to:
-
-```text
-<destination-root>/manifest/import_manifest_<session-id>.json
-```
-
-This sprint does not yet connect manifests into the full import pipeline. That happens in the next sprint after the manifest writer has proven stable in isolation.
+Manifests are written inside the exact import root selected for the session.
+The manifest session ID must match the active session during resume and final
+reconciliation. Manifest entries are verified together with destination files
+and provenance certificates before a batch is considered trusted.

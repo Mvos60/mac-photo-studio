@@ -162,7 +162,8 @@ Both batches remain part of one import session and share one session ID.
 ## Persistent Session Recovery
 
 The active sequential import session may be stored under the Mac Photo Studio
-user state directory.
+user state directory. The GUI offers native Resume, Start new and Cancel
+choices; the CLI remains authoritative for state loading and validation.
 
 The active-session state records:
 
@@ -191,7 +192,7 @@ Primary modules:
 - `mps.models.import_decision`
 
 The batch planner operates on media physically available during the current
-batch.
+batch. The calendar-first destination selection is authoritative when supplied.
 
 It is read-only.
 
@@ -204,19 +205,17 @@ Responsibilities include:
 - detect destination filename collisions
 - produce an `ImportDecision`
 
-The canonical destination layout is:
+The canonical calendar-first destination layout is:
 
-    Photos_Master
-        /
-        YEAR
-        /
-        PROJECT
-        /
-        DAY_OR_SESSION
+    PHOTOS_ROOT/YEAR/MM/DD[_DESCRIPTION]/PROJECT
 
 Example:
 
-    ~/Photos_Master/2026/Adriatic/03_Slovenia
+    /home/mac/Pictures/2026/08/02_Ljubljana/Adriatic
+
+RAW and JPG batches belonging to one photo session reuse the exact same
+ destination. Explicit legacy CLI compatibility commands may still use the
+ original YEAR/PROJECT/DAY layout.
 
 Planning never creates the destination directory.
 
@@ -275,7 +274,7 @@ Primary modules:
 - `mps.services.manifest_writer`
 
 The import manifest is the authoritative record of files accepted into one
-import session.
+import session and is connected to the verified import pipeline.
 
 Each file entry records:
 

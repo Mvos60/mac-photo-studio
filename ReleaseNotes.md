@@ -4,6 +4,25 @@ Mac Photo Studio 0.2.1 RC2 extends the verified import and provenance workflow w
 
 The stable release remains 0.2.0. RC2 is the second release candidate for 0.2.1.
 
+## Current import workflow
+
+The GUI import flow uses the calendar-first destination:
+
+```text
+PHOTOS_ROOT/YEAR/MM/DD[_DESCRIPTION]/PROJECT
+```
+
+Example: `/home/mac/Pictures/2026/08/02_Ljubljana/Adriatic`. RAW and JPG
+cards in one session use the exact same destination. Active sessions offer
+Resume, Start new and Cancel. Resume reuses the persisted structured
+destination without reopening the selector. Start new uses the calendar-first
+selector, requires exact `START NEW` confirmation and protects the old state
+until the first new batch is copied and verified. Cancel changes nothing.
+Corrupt or unsafe state is blocked and never silently removed.
+
+The GUI session workflow is native, but import discovery and progress still run
+in a terminal. Sprint 015.14 is reserved for the fully native import window.
+
 ## Photographer dashboard
 
 The native Tkinter dashboard provides direct access to:
@@ -73,7 +92,7 @@ Camera source media remains read-only.
 
 ## Tested release status
 
-- 558 automated tests passed
+- 745 automated tests passed
 - full Python compile passed
 - native GUI workflow manually checked on Ubuntu/Linux
 - configured photo archive: `/home/mac/Pictures`

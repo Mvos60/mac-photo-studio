@@ -18,17 +18,23 @@
 - Remove confirmed culled pairs from active import manifest
 - Real-world Sony A7 III culling field test
 
+### Completed
+
+- Native Resume / Start new / Cancel import-session workflow
+- Calendar-first year/month/date-description destination layout
+- Protected active-state replacement after the first verified new batch
+- Structured destination persistence and safe resume validation
+- Quarantine restore and explicit permanent removal
+- System Status refresh after import completion
+
 ### Planned
 
-- Fix interrupted-session Resume / Start new / Cancel workflow
-- Add year/month/date-description import layout
-- Preserve trip/project import organization
-- Add culling quarantine restore command
-- Add culling quarantine permanent purge command
 - Improve top-level photographer workflow menu
 - Expose existing digiKam and darktable workflow capabilities more clearly
 
 ## Future
+
+- Sprint 015.14 — Native GUI Import Workflow: replace terminal import progress with a fully native MPS import window.
 
 - Improve GUI workflow
 - Installation and upgrade polish

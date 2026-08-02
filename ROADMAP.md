@@ -37,25 +37,39 @@ Delivered:
 - Transaction rollback protection
 - Real-world Sony A7 III field testing
 
-Remaining before final release:
+Completed in the current development line:
 
-- Fix interrupted-session Resume / Start new / Cancel workflow
-- Add year/month/date-description import layout
-- Prevent path separators in session descriptions
-- Return a clear error for nonexistent import-session paths
-- Complete release documentation review
-- Run final full-suite and real-world import tests
+- Native Resume / Start new / Cancel workflow
+- Calendar-first destination layout
+- Protected replacement of active session state
+- Safe structured resume validation
+- Quarantine restore and explicit permanent removal
+- Documentation synchronization
+
+Historical RC1 planning items are retained in the changelog for release context.
 
 ## 0.2.2 — Quarantine Management
 
-Planned:
+Status: Completed in the current development line.
+
+Delivered:
 
 - List quarantined photographs
-- Restore a quarantined photograph
-- Restore provenance evidence
+- Restore quarantined photographs and provenance evidence
 - Permanently purge confirmed quarantine items
+
+Planned:
+
 - Quarantine audit report
 - Safer batch operations
+
+## 015.14 — Native GUI Import Workflow
+
+Planned:
+
+- Replace terminal import progress with a fully native MPS import window
+- Preserve native Resume / Start new / Cancel and calendar-first selection semantics
+- Keep CLI import compatibility during the transition
 
 ## 0.3.0 — Photographer Workflow Polish
 

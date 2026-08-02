@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased — Sprint 015.13C
+
+Added:
+
+- Native Resume / Start new / Cancel choices for active import sessions.
+- Calendar-first GUI import destination selection:
+  `PHOTOS_ROOT/YEAR/MM/DD[_DESCRIPTION]/PROJECT`.
+- Exact destination reuse across RAW and JPG card batches.
+- Protected Start new replacement until the first new batch is copied and verified.
+- Safe structured resume validation and unchanged legacy CLI compatibility.
+- Quarantine restore and explicit permanent removal.
+- Automatic System Status refresh after import completion.
+
+Current transition:
+
+- The GUI owns session choice and destination selection.
+- Import discovery and progress still run in a terminal.
+- Sprint 015.14 is reserved for the fully native MPS import window.
+
+Verified:
+
+- 745 automated tests passed
+
+
 ## 0.2.1 RC2 — 2026-07-29
 
 Added:

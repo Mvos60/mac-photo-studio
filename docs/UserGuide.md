@@ -49,13 +49,26 @@ This command is read-only.
 mac-photo-studio import
 ```
 
-The wizard asks for year, project and day/session.
-
-The destination layout is:
+The GUI offers a native Resume / Start new / Cancel choice when an active
+session exists. A new GUI import uses the calendar-first selector and the
+configured photo library root:
 
 ```text
-~/Photos_Master/YEAR/PROJECT/DAY
+PHOTOS_ROOT/YEAR/MM/DD[_DESCRIPTION]/PROJECT
 ```
+
+Example:
+
+```text
+/home/mac/Pictures/2026/08/02_Ljubljana/Adriatic
+```
+
+RAW and JPG cards in one session use exactly the same destination. Resume
+reuses the persisted structured destination and does not reopen the selector.
+Start new requires exact `START NEW` confirmation and protects the previous
+state until the first new batch is copied and verified. Cancel leaves state
+unchanged. Import discovery and progress currently run in a terminal; Sprint
+015.14 will provide the fully native MPS import window.
 
 ## Explicit two-folder import
 

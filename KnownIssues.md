@@ -1,47 +1,17 @@
 # Known Issues
 
-## 0.2.1 development
+## Current import workflow
 
-### Interrupted import session UX
+The GUI now provides native Resume / Start new / Cancel session choices and a
+calendar-first destination selector. The actual import discovery and progress
+still run in a terminal; this is the planned focus of Sprint 015.14.
 
-When an interrupted import session exists, answering `n` to:
+An active session is never silently deleted. Corrupt or unsafe state is blocked
+and remains available for diagnosis. Resume validates the saved structured
+destination, manifest, session ID, provenance evidence and import root before
+continuing.
 
-```text
-Resume this import session? [Y/n]
-```
+## Compatibility paths
 
-currently leaves the saved session unchanged and exits.
-
-Expected workflow:
-
-```text
-Resume
-Start new import
-Cancel
-```
-
-Starting a new import should safely replace the stale active-session state and continue with a new session ID.
-
-### Import destination layout
-
-The current destination layout is:
-
-```text
-YEAR / PROJECT / DAY_SESSION
-```
-
-A calendar-oriented workflow using year, month, date and description is planned.
-
-Trip/project organization must remain supported.
-
-### Culling quarantine purge
-
-Confirmed culling currently quarantines verified orphan RAW files and their provenance evidence.
-
-Permanent purge and restore commands are not yet implemented.
-
-### User interface
-
-The current primary workflow is command-line based.
-
-The GUI remains limited and does not yet expose the complete import, culling, verification and application-handoff workflow.
+The legacy CLI destination layout remains available for explicit compatibility
+commands. It is not used by the GUI Start new flow.
