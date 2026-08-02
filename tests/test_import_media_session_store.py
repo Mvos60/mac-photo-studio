@@ -8,6 +8,7 @@ from mps.models.import_media_session import (
     ImportMediaSession,
     ImportMediaSessionDestination,
 )
+from mps.services import import_media_session_store as store_module
 from mps.services.import_media_session_store import (
     load_import_media_session,
     save_import_media_session,
@@ -227,3 +228,85 @@ def test_destination_rejects_invalid_nested_values(
     )
     with pytest.raises(ValueError):
         load_import_media_session(path)
+
+
+def _temporary_state_files(path: Path) -> list[Path]:
+    return list(
+        path.parent.glob(f".{path.name}.*.tmp")
+    )
+
+
+def test_atomic_save_replaces_existing_state(
+    tmp_path: Path,
+):
+    path = tmp_path / "session.json"
+    path.write_bytes(b"old session bytes")
+
+    save_import_media_session(
+        ImportMediaSession(
+            session_id="MPS-SESSION-NEW",
+        ),
+        path,
+    )
+
+    assert load_import_media_session(path).session_id == (
+        "MPS-SESSION-NEW"
+    )
+    assert _temporary_state_files(path) == []
+
+
+def test_atomic_save_write_failure_preserves_existing_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "session.json"
+    original = b"old session bytes"
+    path.write_bytes(original)
+
+    def fail_fsync(_descriptor):
+        raise OSError("fsync failed")
+
+    monkeypatch.setattr(
+        store_module.os,
+        "fsync",
+        fail_fsync,
+    )
+
+    with pytest.raises(OSError, match="fsync failed"):
+        save_import_media_session(
+            ImportMediaSession(
+                session_id="MPS-SESSION-NEW",
+            ),
+            path,
+        )
+
+    assert path.read_bytes() == original
+    assert _temporary_state_files(path) == []
+
+
+def test_atomic_save_replace_failure_preserves_existing_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "session.json"
+    original = b"old session bytes"
+    path.write_bytes(original)
+    real_replace = Path.replace
+
+    def fail_replace(source, target):
+        if target == path:
+            raise OSError("replace failed")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        save_import_media_session(
+            ImportMediaSession(
+                session_id="MPS-SESSION-NEW",
+            ),
+            path,
+        )
+
+    assert path.read_bytes() == original
+    assert _temporary_state_files(path) == []

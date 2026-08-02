@@ -120,6 +120,7 @@ def run_import_media_session(
     session_id: str | None = None,
     session: ImportMediaSession | None = None,
     session_state_path: str | Path | None = None,
+    protect_existing_state_until_first_verified_batch: bool = False,
     progress_callback: Callable[[ImportProgress], None] | None = None,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
@@ -146,6 +147,11 @@ def run_import_media_session(
         Path(session_state_path)
         if session_state_path is not None
         else None
+    )
+    protected_state_pending = bool(
+        protect_existing_state_until_first_verified_batch
+        and state_path is not None
+        and state_path.exists()
     )
 
     batches_processed = 0
@@ -239,7 +245,10 @@ def run_import_media_session(
                 "already imported."
             )
 
-            if state_path is not None:
+            if (
+                state_path is not None
+                and not protected_state_pending
+            ):
                 state_path.unlink(
                     missing_ok=True
                 )
@@ -279,6 +288,7 @@ def run_import_media_session(
                 active_session,
                 state_path,
             )
+            protected_state_pending = False
 
         print(
             f"Media batch verified. "

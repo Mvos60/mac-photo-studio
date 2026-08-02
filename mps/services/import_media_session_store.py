@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from uuid import uuid4
 
 from mps.models.import_destination_selection import (
     ImportDestinationSelection,
@@ -103,15 +105,31 @@ def save_import_media_session(
             ),
         }
 
-    output.write_text(
-        json.dumps(
-            data,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    contents = json.dumps(
+        data,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+    temporary = output.with_name(
+        f".{output.name}.{uuid4().hex}.tmp"
     )
+
+    try:
+        with temporary.open(
+            "x",
+            encoding="utf-8",
+        ) as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        temporary.replace(output)
+    except BaseException:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
     return output
 

@@ -760,6 +760,8 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
     )
 
     root = tmp_path / "reader"
+    state_path = tmp_path / "active_session.json"
+    state_path.write_bytes(b"previous active session")
     _write_photo(root, "DSC0001.ARW", b"raw-data")
     raw_selection = ImportMediaSelection(
         sources=[_card(root, raw=1)]
@@ -844,7 +846,8 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
         day="Legacy Day",
         destination_selection=destination_selection,
         session_id="MPS-SESSION-CALENDAR-SEQUENTIAL",
-        session_state_path=tmp_path / "active_session.json",
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=True,
     )
 
     destination = (
@@ -875,6 +878,7 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
     assert saved_destinations[0].import_root == destination
     assert (destination / "DSC0001.ARW").exists()
     assert (destination / "DSC0001.JPG").exists()
+    assert not state_path.exists()
 
 
 def test_first_verified_structured_batch_saves_destination(
@@ -1181,3 +1185,253 @@ def test_failed_structured_batch_does_not_set_destination(
     assert not result.success
     assert session.destination is None
     assert not state_path.exists()
+
+
+def _mock_discovered_raw_card(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[
+                _card(tmp_path / "reader", raw=1),
+            ]
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("protect_existing", "state_survives"),
+    [
+        (False, False),
+        (True, True),
+    ],
+)
+def test_nothing_to_import_respects_state_protection_mode(
+    protect_existing: bool,
+    state_survives: bool,
+    monkeypatch,
+    tmp_path: Path,
+):
+    from types import SimpleNamespace
+
+    state_path = tmp_path / "active_session.json"
+    original = b"previous active session"
+    state_path.write_bytes(original)
+    _mock_discovered_raw_card(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        lambda *args, **kwargs: SimpleNamespace(
+            copied=0,
+            failed=0,
+            nothing_to_import=True,
+            success=True,
+        ),
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="New Project",
+        day="New Day",
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=(
+            protect_existing
+        ),
+    )
+
+    assert result.nothing_to_import
+    assert state_path.exists() is state_survives
+    if state_survives:
+        assert state_path.read_bytes() == original
+
+
+def test_protected_state_survives_failed_first_batch(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from types import SimpleNamespace
+
+    state_path = tmp_path / "active_session.json"
+    original = b"previous active session"
+    state_path.write_bytes(original)
+    _mock_discovered_raw_card(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        lambda *args, **kwargs: SimpleNamespace(
+            copied=0,
+            failed=1,
+            nothing_to_import=False,
+            success=False,
+        ),
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="New Project",
+        day="New Day",
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=True,
+    )
+
+    assert not result.success
+    assert state_path.read_bytes() == original
+
+
+def test_protected_state_survives_no_media(
+    monkeypatch,
+    tmp_path: Path,
+):
+    state_path = tmp_path / "active_session.json"
+    original = b"previous active session"
+    state_path.write_bytes(original)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="New Project",
+        day="New Day",
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=True,
+    )
+
+    assert not result.completed
+    assert state_path.read_bytes() == original
+
+
+def test_protected_state_survives_exception_before_first_batch(
+    monkeypatch,
+    tmp_path: Path,
+):
+    state_path = tmp_path / "active_session.json"
+    original = b"previous active session"
+    state_path.write_bytes(original)
+
+    def interrupt(_settings):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        interrupt,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="New Project",
+            day="New Day",
+            session_state_path=state_path,
+            protect_existing_state_until_first_verified_batch=True,
+        )
+
+    assert state_path.read_bytes() == original
+
+
+def test_first_verified_batch_atomically_replaces_protected_state(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from mps.services.import_media_session_store import (
+        load_import_media_session,
+    )
+
+    root = tmp_path / "reader"
+    state_path = tmp_path / "active_session.json"
+    old_session_id = "MPS-SESSION-OLD"
+    state_path.write_text(
+        json.dumps(
+            {
+                "session_id": old_session_id,
+                "source_fingerprints": [],
+                "processed_source_files": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[_card(root, raw=1)]
+        ),
+    )
+
+    def interrupt(_prompt):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="New Project",
+            day="New Day",
+            session_state_path=state_path,
+            protect_existing_state_until_first_verified_batch=True,
+        )
+
+    restored = load_import_media_session(state_path)
+    assert restored.session_id is not None
+    assert restored.session_id != old_session_id
+    assert len(restored.processed_source_files) == 1
+
+
+def test_duplicate_only_media_preserves_protected_state(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from mps.services.import_media_batch_processor import (
+        process_import_media_batch,
+    )
+
+    root = tmp_path / "reader"
+    settings = _settings(tmp_path)
+    selection = ImportMediaSelection(
+        sources=[_card(root, jpeg=1)]
+    )
+    _write_photo(root, "DSC0001.JPG", b"jpeg-photo")
+    first = process_import_media_batch(
+        selection,
+        ImportMediaSession(),
+        settings,
+        year=2026,
+        project="First",
+        day="Session",
+        session_id="MPS-SESSION-FIRST",
+    )
+    assert first.success
+
+    state_path = tmp_path / "active_session.json"
+    original = b"previous active session"
+    state_path.write_bytes(original)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        lambda current_settings: selection,
+    )
+
+    result = run_import_media_session(
+        settings,
+        year=2026,
+        project="Second",
+        day="Session",
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=True,
+    )
+
+    assert result.nothing_to_import
+    assert state_path.read_bytes() == original
