@@ -8,11 +8,15 @@ from mps.config import Settings
 from mps.models.import_destination_selection import (
     ImportDestinationSelection,
 )
-from mps.models.import_media_session import ImportMediaSession
+from mps.models.import_media_session import (
+    ImportMediaSession,
+    ImportMediaSessionDestination,
+)
 from mps.models.import_progress import ImportProgress
 from mps.models.import_media_wizard_result import (
     ImportMediaWizardResult,
 )
+from mps.services.import_media_batch_planner import media_import_destination
 from mps.services.import_media_batch_processor import (
     process_import_media_batch,
 )
@@ -31,6 +35,79 @@ from mps.services.import_media_session_store import (
 
 def _new_session_id() -> str:
     return f"MPS-SESSION-{uuid4()}"
+
+
+def _validate_active_destination(
+    session: ImportMediaSession,
+    settings: Settings,
+    *,
+    year: int,
+    project: str,
+    day: str,
+    destination_selection: ImportDestinationSelection | None,
+) -> None:
+    stored = session.destination
+
+    if stored is None:
+        if destination_selection is not None and (
+            session.processed_source_files
+            or session.source_fingerprints
+        ):
+            raise ValueError(
+                "A structured destination cannot be attached to "
+                "a non-empty legacy import session"
+            )
+        return
+
+    if destination_selection is None:
+        raise ValueError(
+            "The active import session requires its structured "
+            "destination selection"
+        )
+
+    if destination_selection != stored.selection:
+        raise ValueError(
+            "The supplied destination selection conflicts with "
+            "the active import session"
+        )
+
+    requested_import_root = media_import_destination(
+        settings,
+        year=year,
+        project=project,
+        day=day,
+        destination_selection=destination_selection,
+    )
+
+    if requested_import_root != stored.import_root:
+        raise ValueError(
+            "The configured import destination conflicts with "
+            "the active import session"
+        )
+
+
+def _record_destination(
+    session: ImportMediaSession,
+    selection: ImportDestinationSelection | None,
+    import_root: Path,
+) -> None:
+    if selection is None:
+        return
+
+    destination = ImportMediaSessionDestination(
+        selection=selection,
+        import_root=import_root,
+    )
+
+    if session.destination is None:
+        session.destination = destination
+        return
+
+    if session.destination != destination:
+        raise ValueError(
+            "Import session destination conflicts with "
+            "the verified media batch destination"
+        )
 
 
 def run_import_media_session(
@@ -55,6 +132,15 @@ def run_import_media_session(
 
     active_session = session or ImportMediaSession()
     active_session.session_id = active_session_id
+
+    _validate_active_destination(
+        active_session,
+        settings,
+        year=year,
+        project=project,
+        day=day,
+        destination_selection=destination_selection,
+    )
 
     state_path = (
         Path(session_state_path)
@@ -179,6 +265,12 @@ def run_import_media_session(
                 completed=False,
             )
 
+        _record_destination(
+            active_session,
+            destination_selection,
+            result.plan.destination,
+        )
+
         batches_processed += 1
         import_root = result.plan.destination
 
@@ -212,10 +304,6 @@ def run_import_media_session(
             break
 
     if import_root is None:
-        from mps.services.import_media_batch_planner import (
-            media_import_destination,
-        )
-
         import_root = media_import_destination(
             settings,
             year=year,

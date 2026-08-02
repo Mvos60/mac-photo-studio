@@ -4,7 +4,31 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mps.models.card import CardScanResult
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_selection import ImportMediaSelection
+
+
+@dataclass(frozen=True, slots=True)
+class ImportMediaSessionDestination:
+    selection: ImportDestinationSelection
+    import_root: Path
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.selection,
+            ImportDestinationSelection,
+        ):
+            raise ValueError(
+                "Destination selection must be an "
+                "ImportDestinationSelection"
+            )
+
+        if not isinstance(self.import_root, Path):
+            raise ValueError(
+                "Destination import_root must be a Path"
+            )
 
 
 @dataclass(slots=True)
@@ -15,6 +39,7 @@ class ImportMediaSession:
     sources: list[CardScanResult] = field(default_factory=list)
     source_fingerprints: set[str] = field(default_factory=set)
     processed_source_files: list[Path] = field(default_factory=list)
+    destination: ImportMediaSessionDestination | None = None
 
     @property
     def selection(self) -> ImportMediaSelection:

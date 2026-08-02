@@ -1,4 +1,7 @@
 from pathlib import Path
+import json
+
+import pytest
 
 from mps.config import Settings
 from mps.models.card import CardScanResult
@@ -6,6 +9,10 @@ from mps.models.import_destination_selection import (
     ImportDestinationSelection,
 )
 from mps.models.import_media_selection import ImportMediaSelection
+from mps.models.import_media_session import (
+    ImportMediaSession,
+    ImportMediaSessionDestination,
+)
 from mps.services.import_media_wizard_runner import (
     run_import_media_session,
 )
@@ -490,6 +497,9 @@ def test_interrupted_after_first_batch_leaves_session_state(
 
     assert state_path.exists()
 
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "destination" not in state
+
     from mps.services.import_media_session_store import (
         load_import_media_session,
     )
@@ -779,6 +789,7 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
 
     received_selections = []
     received_destinations = []
+    saved_destinations = []
 
     def process(*args, **kwargs):
         received_selections.append(
@@ -801,6 +812,19 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
         "process_import_media_batch",
         process,
     )
+    from mps.services.import_media_session_store import (
+        save_import_media_session as real_save_import_media_session,
+    )
+
+    def save(session, path):
+        saved_destinations.append(session.destination)
+        return real_save_import_media_session(session, path)
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "save_import_media_session",
+        save,
+    )
     answers = iter(["", "no"])
     monkeypatch.setattr(
         "builtins.input",
@@ -820,6 +844,7 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
         day="Legacy Day",
         destination_selection=destination_selection,
         session_id="MPS-SESSION-CALENDAR-SEQUENTIAL",
+        session_state_path=tmp_path / "active_session.json",
     )
 
     destination = (
@@ -843,5 +868,316 @@ def test_sequential_batches_reuse_same_calendar_destination_selection(
         destination,
         destination,
     ]
+    assert len(saved_destinations) == 2
+    assert saved_destinations[0] is saved_destinations[1]
+    assert saved_destinations[0] is not None
+    assert saved_destinations[0].selection is destination_selection
+    assert saved_destinations[0].import_root == destination
     assert (destination / "DSC0001.ARW").exists()
     assert (destination / "DSC0001.JPG").exists()
+
+
+def test_first_verified_structured_batch_saves_destination(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "reader"
+    state_path = tmp_path / "active_session.json"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[_card(root, raw=1)]),
+    )
+
+    def interrupt(_):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="Adriatic",
+            day="08-01_Ljubljana",
+            destination_selection=destination_selection,
+            session_id="MPS-SESSION-STRUCTURED",
+            session_state_path=state_path,
+        )
+
+    from mps.services.import_media_session_store import (
+        load_import_media_session,
+    )
+
+    restored = load_import_media_session(state_path)
+    assert restored.destination is not None
+    assert restored.destination.selection == destination_selection
+    assert restored.destination.import_root == (
+        tmp_path / "Photos_Master" / "2026" / "08"
+        / "01_Ljubljana" / "Adriatic"
+    )
+
+
+@pytest.mark.parametrize("conflict", ["selection", "import_root"])
+def test_conflicting_structured_destination_is_not_overwritten(
+    monkeypatch,
+    tmp_path: Path,
+    conflict: str,
+):
+    root = tmp_path / "reader"
+    state_path = tmp_path / "active_session.json"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    incoming = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+    existing_selection = (
+        ImportDestinationSelection(
+            year=2026,
+            month_day="08-02",
+            project="Adriatic",
+            description="Ljubljana",
+        )
+        if conflict == "selection"
+        else incoming
+    )
+    existing_root = (
+        tmp_path / "conflicting-root"
+        if conflict == "import_root"
+        else incoming.destination_path(tmp_path / "Photos_Master")
+    )
+    existing = ImportMediaSessionDestination(
+        selection=existing_selection,
+        import_root=existing_root,
+    )
+    session = ImportMediaSession(destination=existing)
+    processor_calls = []
+
+    def process(*args, **kwargs):
+        processor_calls.append((args, kwargs))
+        raise AssertionError("processor must not be called")
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        process,
+    )
+    original_state = b"unchanged active state"
+    state_path.write_bytes(original_state)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[_card(root, raw=1)]),
+    )
+
+    with pytest.raises(ValueError, match="conflicts"):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="Adriatic",
+            day="08-01_Ljubljana",
+            destination_selection=incoming,
+            session=session,
+            session_state_path=state_path,
+        )
+
+    assert session.destination is existing
+    assert processor_calls == []
+    assert state_path.read_bytes() == original_state
+    assert not incoming.destination_path(
+        tmp_path / "Photos_Master"
+    ).exists()
+
+
+def test_stored_structured_destination_requires_selection(
+    monkeypatch,
+    tmp_path: Path,
+):
+    selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+    existing = ImportMediaSessionDestination(
+        selection=selection,
+        import_root=selection.destination_path(tmp_path / "Photos_Master"),
+    )
+    session = ImportMediaSession(
+        session_id="MPS-SESSION-STORED",
+        destination=existing,
+    )
+    processor_calls = []
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        lambda *args, **kwargs: processor_calls.append((args, kwargs)),
+    )
+    state_path = tmp_path / "active_session.json"
+    original_state = b"unchanged active state"
+    state_path.write_bytes(original_state)
+
+    with pytest.raises(ValueError, match="requires"):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="Adriatic",
+            day="08-01_Ljubljana",
+            session=session,
+            session_state_path=state_path,
+        )
+
+    assert processor_calls == []
+    assert session.destination is existing
+    assert state_path.read_bytes() == original_state
+    assert not existing.import_root.exists()
+
+
+def test_matching_stored_structured_destination_reaches_processor(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from types import SimpleNamespace
+
+    selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+    existing = ImportMediaSessionDestination(
+        selection=selection,
+        import_root=selection.destination_path(tmp_path / "Photos_Master"),
+    )
+    session = ImportMediaSession(destination=existing)
+    processor_calls = []
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[_card(tmp_path / "reader", raw=1)]
+        ),
+    )
+
+    def process(*args, **kwargs):
+        processor_calls.append((args, kwargs))
+        return SimpleNamespace(
+            copied=0,
+            failed=1,
+            nothing_to_import=False,
+            success=False,
+        )
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        process,
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Adriatic",
+        day="08-01_Ljubljana",
+        destination_selection=selection,
+        session=session,
+    )
+
+    assert not result.success
+    assert len(processor_calls) == 1
+    assert session.destination is existing
+
+
+def test_non_empty_legacy_session_rejects_structured_destination(
+    monkeypatch,
+    tmp_path: Path,
+):
+    session = ImportMediaSession(
+        session_id="MPS-SESSION-LEGACY",
+        source_fingerprints={"legacy-card"},
+        processed_source_files=[tmp_path / "legacy-card" / "photo.ARW"],
+    )
+    processor_calls = []
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        lambda *args, **kwargs: processor_calls.append((args, kwargs)),
+    )
+    state_path = tmp_path / "active_session.json"
+    original_state = b"unchanged legacy state"
+    state_path.write_bytes(original_state)
+    original_fingerprints = session.source_fingerprints.copy()
+    original_files = session.processed_source_files.copy()
+
+    with pytest.raises(ValueError, match="non-empty legacy"):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="Adriatic",
+            day="08-01_Ljubljana",
+            destination_selection=ImportDestinationSelection(
+                year=2026,
+                month_day="08-01",
+                project="Adriatic",
+                description="Ljubljana",
+            ),
+            session=session,
+            session_state_path=state_path,
+        )
+
+    assert processor_calls == []
+    assert session.destination is None
+    assert session.source_fingerprints == original_fingerprints
+    assert session.processed_source_files == original_files
+    assert state_path.read_bytes() == original_state
+    assert not (tmp_path / "Photos_Master").exists()
+
+
+def test_failed_structured_batch_does_not_set_destination(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from types import SimpleNamespace
+
+    session = ImportMediaSession()
+    state_path = tmp_path / "active_session.json"
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[_card(tmp_path / "reader", raw=1)]
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.process_import_media_batch",
+        lambda *args, **kwargs: SimpleNamespace(
+            copied=0,
+            failed=1,
+            nothing_to_import=False,
+            success=False,
+        ),
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Adriatic",
+        day="08-01_Ljubljana",
+        destination_selection=ImportDestinationSelection(
+            year=2026,
+            month_day="08-01",
+            project="Adriatic",
+            description="Ljubljana",
+        ),
+        session=session,
+        session_state_path=state_path,
+    )
+
+    assert not result.success
+    assert session.destination is None
+    assert not state_path.exists()
