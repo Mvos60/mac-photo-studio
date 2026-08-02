@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from mps.config import Settings
-from mps.main import main
+from mps.main import (
+    main,
+    parse_active_import_action,
+    prompt_active_import_action,
+)
 from mps.models.import_session_request import ImportSessionRequest
 from mps.models.post_import_verification import PostImportVerification
 from mps.models.source_card_reconciliation import (
@@ -2018,7 +2022,10 @@ def test_cli_import_reports_invalid_active_state_without_traceback(
     )
     monkeypatch.setattr(
         "builtins.input",
-        lambda prompt: resume_prompts.append(prompt),
+        lambda prompt: (
+            resume_prompts.append(prompt)
+            or "c"
+        ),
     )
     monkeypatch.setattr(
         "mps.main.prompt_year",
@@ -2037,7 +2044,7 @@ def test_cli_import_reports_invalid_active_state_without_traceback(
 
     captured = capsys.readouterr()
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert (
         "Saved import session cannot be resumed safely.\n"
         "The saved session state is invalid or could not be read."
@@ -2047,7 +2054,7 @@ def test_cli_import_reports_invalid_active_state_without_traceback(
     assert "Traceback" not in captured.err
     assert validator_calls == []
     assert runner_calls == []
-    assert resume_prompts == []
+    assert resume_prompts == ["Choice [C]: "]
     assert destination_prompts == []
     assert state_path.read_bytes() == state_bytes
 
@@ -2218,6 +2225,10 @@ def test_cli_structured_resume_reuses_exact_persisted_selection(
     assert runner_calls[0][1]["session"] is restored_session
     assert runner_calls[0][1]["destination_selection"] is (
         persisted_selection
+    )
+    assert (
+        "protect_existing_state_until_first_verified_batch"
+        not in runner_calls[0][1]
     )
     assert "Year        : 2026" in output
     assert "Date        : 08-01" in output
@@ -2400,13 +2411,9 @@ def test_cli_structured_resume_with_changed_root_is_refused(
     monkeypatch.setattr("builtins.input", lambda prompt: "")
 
     exit_code = main(["import"])
-    requested_root = persisted_selection.destination_path(
-        moved_root
-    )
-
     assert exit_code == 1
     assert validator_calls == [
-        (restored_session, requested_root, settings)
+        (restored_session, persisted_root, settings)
     ]
     assert restored_session.destination.import_root == persisted_root
     assert runner_calls == []
@@ -2441,7 +2448,7 @@ def test_cli_declined_structured_resume_leaves_state_unchanged(
             (args, kwargs)
         ),
     )
-    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    monkeypatch.setattr("builtins.input", lambda prompt: "c")
 
     exit_code = main(["import"])
 
@@ -2450,4 +2457,515 @@ def test_cli_declined_structured_resume_leaves_state_unchanged(
     assert runner_calls == []
     assert restored_session.destination.selection is persisted_selection
     assert restored_session.destination.import_root == persisted_root
+    assert state_path.read_bytes() == original_state
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", "resume"),
+        ("r", "resume"),
+        ("resume", "resume"),
+        (" R ", "resume"),
+        ("RESUME", "resume"),
+        ("n", "start-new"),
+        ("new", "start-new"),
+        ("start new", "start-new"),
+        (" START NEW ", "start-new"),
+        ("c", "cancel"),
+        ("cancel", "cancel"),
+        (" CANCEL ", "cancel"),
+    ],
+)
+def test_parse_active_import_action(
+    value: str,
+    expected: str,
+):
+    assert parse_active_import_action(value) == expected
+
+
+def test_parse_corrupt_active_import_action_has_safe_default():
+    assert parse_active_import_action(
+        "",
+        can_resume=False,
+    ) == "cancel"
+    assert parse_active_import_action(
+        "resume",
+        can_resume=False,
+    ) is None
+
+
+def test_active_import_action_invalid_choice_reprompts(
+    monkeypatch,
+    capsys,
+):
+    answers = iter(["invalid", " RESUME "])
+    prompts = []
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: (
+            prompts.append(prompt)
+            or next(answers)
+        ),
+    )
+
+    action = prompt_active_import_action()
+
+    assert action == "resume"
+    assert prompts == ["Choice [R]: ", "Choice [R]: "]
+    assert (
+        "Please choose Resume, Start new, or Cancel."
+        in capsys.readouterr().out
+    )
+
+
+def test_cli_cancel_active_session_precedes_destination_prompts(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        restored_session,
+        _selection,
+        _persisted_root,
+        _settings_value,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    destination_prompts = []
+    validator_calls = []
+    runner_calls = []
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: destination_prompts.append("year"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: destination_prompts.append("project"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: destination_prompts.append("day"),
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda *args, **kwargs: validator_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: "c")
+
+    assert main(["import"]) == 0
+    assert destination_prompts == []
+    assert validator_calls == []
+    assert runner_calls == []
+    assert restored_session.session_id == "MPS-SESSION-STRUCTURED"
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_legacy_resume_prompts_only_after_resume_choice(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.models.import_media_session import ImportMediaSession
+
+    state_dir = tmp_path / "state"
+    state_path = state_dir / "active_import_session.json"
+    state_dir.mkdir()
+    state_path.write_text("saved legacy state", encoding="utf-8")
+    restored_session = ImportMediaSession(
+        session_id="MPS-SESSION-LEGACY",
+        source_fingerprints={"legacy-card"},
+    )
+    settings = _settings(tmp_path)
+    events = []
+    validator_calls = []
+    runner_calls = []
+    monkeypatch.setattr("mps.main.USER_STATE_DIR", state_dir)
+    monkeypatch.setattr("mps.main.load_settings", lambda: settings)
+    monkeypatch.setattr(
+        "mps.main.load_import_media_session",
+        lambda path: restored_session,
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: (
+            events.append("choice")
+            or ""
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: events.append("year") or 2026,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: events.append("project") or "Adriatic",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: events.append("day") or "03_Slovenia",
+    )
+
+    def validate(session, root, *, settings):
+        validator_calls.append((session, root, settings))
+        return True
+
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        validate,
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda received_settings, **kwargs: (
+            runner_calls.append((received_settings, kwargs))
+            or SimpleNamespace(
+                batches_processed=1,
+                copied=1,
+                failed=0,
+                completed=True,
+                success=True,
+            )
+        ),
+    )
+
+    assert main(["import"]) == 0
+    assert events == ["choice", "year", "project", "day"]
+    assert validator_calls[0][0] is restored_session
+    assert runner_calls[0][1]["session"] is restored_session
+    assert (
+        "protect_existing_state_until_first_verified_batch"
+        not in runner_calls[0][1]
+    )
+
+
+def test_cli_start_new_uses_new_legacy_destination_and_protection(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _restored_session,
+        _selection,
+        _persisted_root,
+        settings,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    destination_events = []
+    validator_calls = []
+    runner_calls = []
+    answers = iter(["n", "START NEW"])
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: next(answers),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: destination_events.append("year") or 2027,
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: destination_events.append("project") or "New Project",
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: destination_events.append("day") or "New Day",
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda *args, **kwargs: validator_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda received_settings, **kwargs: (
+            runner_calls.append((received_settings, kwargs))
+            or SimpleNamespace(
+                batches_processed=1,
+                copied=1,
+                failed=0,
+                completed=True,
+                success=True,
+            )
+        ),
+    )
+
+    assert main(["import"]) == 0
+    assert destination_events == ["year", "project", "day"]
+    assert validator_calls == []
+    assert runner_calls[0][0] is settings
+    kwargs = runner_calls[0][1]
+    assert kwargs["year"] == 2027
+    assert kwargs["project"] == "New Project"
+    assert kwargs["day"] == "New Day"
+    assert kwargs["session"] is None
+    assert "session_id" not in kwargs
+    assert (
+        kwargs[
+            "protect_existing_state_until_first_verified_batch"
+        ]
+        is True
+    )
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_rejected_start_new_preserves_state(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _restored_session,
+        _selection,
+        _persisted_root,
+        _settings_value,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    runner_calls = []
+    answers = iter(["n", "start new"])
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: next(answers),
+    )
+    monkeypatch.setattr("mps.main.prompt_year", lambda default: 2027)
+    monkeypatch.setattr("mps.main.prompt_project", lambda: "New Project")
+    monkeypatch.setattr("mps.main.prompt_day", lambda: "New Day")
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+
+    assert main(["import"]) == 0
+    assert runner_calls == []
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_start_new_destination_error_preserves_state(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _restored_session,
+        _selection,
+        _persisted_root,
+        _settings_value,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    runner_calls = []
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+
+    def invalid_year(_default):
+        raise ValueError("invalid year")
+
+    monkeypatch.setattr("mps.main.prompt_year", invalid_year)
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+
+    with pytest.raises(ValueError, match="invalid year"):
+        main(["import"])
+
+    assert runner_calls == []
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_start_new_runner_exception_preserves_state(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _restored_session,
+        _selection,
+        _persisted_root,
+        _settings_value,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    answers = iter(["n", "START NEW"])
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: next(answers),
+    )
+    monkeypatch.setattr("mps.main.prompt_year", lambda default: 2027)
+    monkeypatch.setattr("mps.main.prompt_project", lambda: "New Project")
+    monkeypatch.setattr("mps.main.prompt_day", lambda: "New Day")
+
+    def interrupt(*args, **kwargs):
+        assert kwargs["session"] is None
+        assert (
+            kwargs[
+                "protect_existing_state_until_first_verified_batch"
+            ]
+            is True
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        interrupt,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["import"])
+
+    assert state_path.read_bytes() == original_state
+
+
+@pytest.mark.parametrize(
+    ("answers", "runner_expected"),
+    [
+        (["c"], False),
+        (["n", "not confirmed"], False),
+        (["n", "START NEW"], True),
+    ],
+    ids=["cancel", "rejected-start-new", "confirmed-start-new"],
+)
+def test_cli_corrupt_state_start_new_or_cancel_is_safe(
+    answers,
+    runner_expected,
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_path = state_dir / "active_import_session.json"
+    original_state = b"{malformed"
+    state_path.write_bytes(original_state)
+    runner_calls = []
+    prompts = []
+    answer_values = iter(answers)
+    monkeypatch.setattr("mps.main.USER_STATE_DIR", state_dir)
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: (
+            prompts.append(prompt)
+            or next(answer_values)
+        ),
+    )
+    monkeypatch.setattr("mps.main.prompt_year", lambda default: 2027)
+    monkeypatch.setattr("mps.main.prompt_project", lambda: "New Project")
+    monkeypatch.setattr("mps.main.prompt_day", lambda: "New Day")
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda received_settings, **kwargs: (
+            runner_calls.append((received_settings, kwargs))
+            or SimpleNamespace(
+                batches_processed=0,
+                copied=0,
+                failed=0,
+                completed=True,
+                success=True,
+            )
+        ),
+    )
+
+    assert main(["import"]) == 0
+    output = capsys.readouterr().out
+    assert "Saved import session cannot be resumed safely." in output
+    assert f"State file       : {state_path}" in output
+    assert "R  Resume" not in output
+    assert prompts[0] == "Choice [C]: "
+    assert bool(runner_calls) is runner_expected
+    if runner_expected:
+        kwargs = runner_calls[0][1]
+        assert kwargs["session"] is None
+        assert (
+            kwargs[
+                "protect_existing_state_until_first_verified_batch"
+            ]
+            is True
+        )
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_start_new_accepts_structured_destination_values(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _restored_session,
+        _selection,
+        _persisted_root,
+        _settings_value,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    destination_prompts = []
+    runner_calls = []
+    answers = iter(["n", "START NEW"])
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: next(answers),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: destination_prompts.append("year"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: destination_prompts.append("project"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: destination_prompts.append("day"),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda received_settings, **kwargs: (
+            runner_calls.append(kwargs)
+            or SimpleNamespace(
+                batches_processed=1,
+                copied=1,
+                failed=0,
+                completed=True,
+                success=True,
+            )
+        ),
+    )
+
+    assert main(
+        [
+            "import",
+            "--destination-year",
+            "2027",
+            "--destination-month-day",
+            "09-03",
+            "--destination-project",
+            "New Journey",
+            "--destination-description",
+            "Start New",
+        ]
+    ) == 0
+
+    assert destination_prompts == []
+    kwargs = runner_calls[0]
+    assert kwargs["session"] is None
+    assert (
+        kwargs[
+            "protect_existing_state_until_first_verified_batch"
+        ]
+        is True
+    )
+    selection = kwargs["destination_selection"]
+    assert selection.year == 2027
+    assert selection.month_day == "09-03"
+    assert selection.project == "New Journey"
+    assert selection.description == "Start New"
     assert state_path.read_bytes() == original_state

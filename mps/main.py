@@ -456,6 +456,75 @@ def run_real_import(
     return 0 if reconciliation.reconciled else 1
 
 
+def parse_active_import_action(
+    value: str,
+    *,
+    can_resume: bool = True,
+) -> str | None:
+    normalized = value.strip().lower()
+
+    if can_resume and normalized in {"", "r", "resume"}:
+        return "resume"
+    if normalized in {"n", "new", "start new"}:
+        return "start-new"
+    if normalized in {"c", "cancel"} or (
+        not can_resume and normalized == ""
+    ):
+        return "cancel"
+
+    return None
+
+
+def prompt_active_import_action(
+    *,
+    can_resume: bool = True,
+) -> str:
+    print("Choose:")
+
+    if can_resume:
+        print("R  Resume")
+
+    print("N  Start new")
+    print("C  Cancel")
+    print()
+
+    prompt = "Choice [R]: " if can_resume else "Choice [C]: "
+
+    while True:
+        action = parse_active_import_action(
+            input(prompt),
+            can_resume=can_resume,
+        )
+
+        if action is not None:
+            return action
+
+        choices = (
+            "Resume, Start new, or Cancel"
+            if can_resume
+            else "Start new or Cancel"
+        )
+        print(f"Please choose {choices}.")
+
+
+def print_active_import_session(session) -> None:
+    destination = (
+        str(session.destination.import_root)
+        if session.destination is not None
+        else "Legacy destination not stored"
+    )
+
+    print("An active import session was found.")
+    print()
+    print(f"Session ID       : {session.session_id or '—'}")
+    print(f"Destination      : {destination}")
+    print(
+        f"Processed files  : "
+        f"{len(session.processed_source_files)}"
+    )
+    print()
+
+
 def run_interactive_import_command(
     destination_selection: ImportDestinationSelection | None = None,
 ) -> int:
@@ -476,6 +545,8 @@ def run_interactive_import_command(
     print()
 
     restored_session = None
+    active_action = None
+    saved_session_label = str(state_path)
 
     if state_path.exists():
         try:
@@ -490,18 +561,34 @@ def run_interactive_import_command(
                 "The saved session state is invalid or "
                 "could not be read."
             )
-            return 1
-
-        stored_destination = restored_session.destination
-
-        if stored_destination is not None and (
-            destination_selection is None
-            or destination_selection
-            == stored_destination.selection
-        ):
-            destination_selection = (
-                stored_destination.selection
+            print(f"State file       : {state_path}")
+            print()
+            active_action = prompt_active_import_action(
+                can_resume=False,
             )
+        else:
+            print_active_import_session(restored_session)
+            active_action = prompt_active_import_action()
+            saved_session_label = (
+                restored_session.session_id
+                or str(state_path)
+            )
+
+        if active_action == "cancel":
+            print("Saved import session left unchanged.")
+            return 0
+
+        if active_action == "resume":
+            stored_destination = restored_session.destination
+
+            if stored_destination is not None and (
+                destination_selection is None
+                or destination_selection
+                == stored_destination.selection
+            ):
+                destination_selection = (
+                    stored_destination.selection
+                )
 
     if destination_selection is None:
         year = prompt_year(datetime.now().year)
@@ -517,13 +604,23 @@ def run_interactive_import_command(
         year = destination_selection.year
         project = destination_selection.project
         day = destination_selection.day_session
-        import_root = media_import_destination(
-            settings,
-            year=year,
-            project=project,
-            day=day,
-            destination_selection=destination_selection,
-        )
+
+        if (
+            active_action == "resume"
+            and restored_session is not None
+            and restored_session.destination is not None
+            and destination_selection
+            is restored_session.destination.selection
+        ):
+            import_root = restored_session.destination.import_root
+        else:
+            import_root = media_import_destination(
+                settings,
+                year=year,
+                project=project,
+                day=day,
+                destination_selection=destination_selection,
+            )
 
     print()
     print("Import Session")
@@ -543,26 +640,7 @@ def run_interactive_import_command(
         )
     print()
 
-    if restored_session is not None:
-        print(
-            "An interrupted import session was found."
-        )
-        print(
-            f"Session ID  : "
-            f"{restored_session.session_id}"
-        )
-        print()
-
-        answer = input(
-            "Resume this import session? [Y/n]: "
-        ).strip().lower()
-
-        if answer in {"n", "no"}:
-            print(
-                "Saved import session left unchanged."
-            )
-            return 0
-
+    if active_action == "resume":
         if (
             restored_session.destination is None
             and destination_selection is not None
@@ -593,6 +671,28 @@ def run_interactive_import_command(
         print("Resuming verified import session.")
         print()
 
+    elif active_action == "start-new":
+        print(
+            f"The saved session {saved_session_label} "
+            "will be replaced only after"
+        )
+        print(
+            "the first new media batch has copied and "
+            "verified successfully."
+        )
+        print()
+
+        confirmation = input(
+            "Type START NEW to confirm: "
+        ).strip()
+
+        if confirmation != "START NEW":
+            print(
+                "Start new cancelled. "
+                "Saved import session left unchanged."
+            )
+            return 0
+
     else:
         answer = input(
             "Start this import session? [Y/n]: "
@@ -602,14 +702,24 @@ def run_interactive_import_command(
             print("Import cancelled.")
             return 0
 
+    starting_new = active_action == "start-new"
     session_arguments = {
         "year": year,
         "project": project,
         "day": day,
-        "session": restored_session,
+        "session": (
+            None
+            if starting_new
+            else restored_session
+        ),
         "session_state_path": state_path,
         "progress_callback": print_import_progress,
     }
+
+    if starting_new:
+        session_arguments[
+            "protect_existing_state_until_first_verified_batch"
+        ] = True
 
     if destination_selection is not None:
         session_arguments["destination_selection"] = (
