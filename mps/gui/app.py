@@ -14,6 +14,9 @@ from mps.gui.culling_review import show_culling_review
 from mps.gui.import_destination_selector import (
     choose_import_destination,
 )
+from mps.gui.import_session_action_selector import (
+    choose_import_session_action,
+)
 from mps.gui.quarantine_manager import show_quarantine_manager
 from mps.gui.verify_photograph import show_verify_photograph
 from mps.gui.photo_history import (
@@ -29,6 +32,7 @@ from mps.version import get_version
 
 
 TerminalResolver = Callable[[str], str | None]
+_active_import_process: subprocess.Popen | None = None
 
 
 def build_cli_command(arguments: list[str]) -> str:
@@ -43,17 +47,34 @@ def build_cli_command(arguments: list[str]) -> str:
 def resolve_terminal_command(
     cli_command: str,
     resolver: TerminalResolver = shutil.which,
+    *,
+    import_command: bool = False,
+    title: str | None = None,
 ) -> list[str] | None:
-    shell_command = (
-        f"{cli_command}; "
-        'echo; read -rp "Press Enter to close..."'
-    )
+    if import_command:
+        shell_command = (
+            f"{cli_command}; "
+            'status=$?; '
+            'if [ "$status" -ne 0 ]; then '
+            'echo; '
+            'echo "Import exited with status $status."; '
+            'read -rp "Press Enter to close..."; '
+            'fi; '
+            'exit "$status"'
+        )
+    else:
+        shell_command = (
+            f"{cli_command}; "
+            'echo; read -rp "Press Enter to close..."'
+        )
 
     candidates = [
         (
             "gnome-terminal",
             [
                 "gnome-terminal",
+                *( ["-t", title] if title else [] ),
+                "--wait",
                 "--",
                 "bash",
                 "-lc",
@@ -64,6 +85,7 @@ def resolve_terminal_command(
             "kgx",
             [
                 "kgx",
+                *( ["--title", title] if title else [] ),
                 "--",
                 "bash",
                 "-lc",
@@ -74,6 +96,7 @@ def resolve_terminal_command(
             "x-terminal-emulator",
             [
                 "x-terminal-emulator",
+                *( ["-T", title] if title else [] ),
                 "-e",
                 "bash",
                 "-lc",
@@ -84,6 +107,7 @@ def resolve_terminal_command(
             "konsole",
             [
                 "konsole",
+                *( ["--title", title] if title else [] ),
                 "-e",
                 "bash",
                 "-lc",
@@ -94,6 +118,7 @@ def resolve_terminal_command(
             "xfce4-terminal",
             [
                 "xfce4-terminal",
+                *( ["--title", title] if title else [] ),
                 "--command",
                 "bash -lc " + shlex.quote(shell_command),
             ],
@@ -107,10 +132,36 @@ def resolve_terminal_command(
     return None
 
 
+def _import_terminal_title(arguments: list[str]) -> str:
+    if "--active-session-action" in arguments:
+        index = arguments.index("--active-session-action")
+        if index + 1 < len(arguments):
+            action = arguments[index + 1]
+            if action == "resume":
+                return "Mac Photo Studio Import — Resume"
+            if action == "start-new":
+                return "Mac Photo Studio Import — Start new"
+    return "Mac Photo Studio Import"
+
+
 def launch_cli(arguments: list[str]) -> None:
+    global _active_import_process
+
+    is_import = bool(arguments) and arguments[0] == "import"
+    if is_import and _active_import_process is not None:
+        if _active_import_process.poll() is None:
+            messagebox.showwarning(
+                "Import Already Running",
+                "An import terminal is already running.",
+            )
+            return
+        _active_import_process = None
+
     cli_command = build_cli_command(arguments)
     terminal_command = resolve_terminal_command(
-        cli_command
+        cli_command,
+        import_command=is_import,
+        title=_import_terminal_title(arguments) if is_import else None,
     )
 
     if terminal_command is None:
@@ -125,10 +176,12 @@ def launch_cli(arguments: list[str]) -> None:
         return
 
     try:
-        subprocess.Popen(
+        process = subprocess.Popen(
             terminal_command,
             start_new_session=True,
         )
+        if is_import:
+            _active_import_process = process
     except OSError as exc:
         messagebox.showerror(
             "Could Not Start Command",
@@ -141,9 +194,25 @@ def launch_cli(arguments: list[str]) -> None:
 
 
 def start_import(parent: tk.Misc) -> None:
+    active_action = None
+
     if ACTIVE_IMPORT_SESSION.exists():
-        launch_cli(["import"])
-        return
+        active_action = choose_import_session_action(
+            parent=parent,
+        )
+
+        if active_action in {None, "cancel"}:
+            return
+
+        if active_action == "resume":
+            launch_cli(
+                [
+                    "import",
+                    "--active-session-action",
+                    "resume",
+                ]
+            )
+            return
 
     selection = choose_import_destination(
         parent=parent,
@@ -153,9 +222,18 @@ def start_import(parent: tk.Misc) -> None:
     if selection is None:
         return
 
-    launch_cli(
+    arguments = ["import"]
+
+    if active_action == "start-new":
+        arguments.extend(
+            [
+                "--active-session-action",
+                "start-new",
+            ]
+        )
+
+    arguments.extend(
         [
-            "import",
             "--destination-year",
             str(selection.year),
             "--destination-month-day",
@@ -166,6 +244,7 @@ def start_import(parent: tk.Misc) -> None:
             selection.description,
         ]
     )
+    launch_cli(arguments)
 
 
 def open_path(path: Path) -> None:

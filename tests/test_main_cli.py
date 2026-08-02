@@ -2969,3 +2969,108 @@ def test_cli_start_new_accepts_structured_destination_values(
     assert selection.project == "New Journey"
     assert selection.description == "Start New"
     assert state_path.read_bytes() == original_state
+
+
+def test_cli_resume_action_intent_skips_choice_and_reuses_selection(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    (
+        restored_session,
+        selection,
+        persisted_root,
+        settings,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    validator_calls = []
+    runner_calls = []
+
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: (_ for _ in ()).throw(
+            AssertionError("resume choice must be skipped")
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda session, root, *, settings: (
+            validator_calls.append((session, root, settings)) or True
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda received_settings, **kwargs: (
+            runner_calls.append((received_settings, kwargs))
+            or SimpleNamespace(
+                batches_processed=0, copied=0, failed=0,
+                completed=True, success=True,
+            )
+        ),
+    )
+
+    assert main(["import", "--active-session-action", "resume"]) == 0
+    assert validator_calls == [(restored_session, persisted_root, settings)]
+    assert runner_calls[0][1]["session"] is restored_session
+    assert runner_calls[0][1]["destination_selection"] is selection
+    assert (
+        "protect_existing_state_until_first_verified_batch"
+        not in runner_calls[0][1]
+    )
+    assert state_path.read_bytes() == original_state
+    assert "Day/session" not in capsys.readouterr().out
+
+
+def test_cli_start_new_action_intent_requires_confirmation_and_protection(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _restored_session,
+        _selection,
+        _persisted_root,
+        _settings_value,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    runner_calls = []
+    monkeypatch.setattr("builtins.input", lambda prompt: "START NEW")
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda received_settings, **kwargs: (
+            runner_calls.append((received_settings, kwargs))
+            or SimpleNamespace(
+                batches_processed=1, copied=1, failed=0,
+                completed=True, success=True,
+            )
+        ),
+    )
+
+    assert main([
+        "import", "--active-session-action", "start-new",
+        "--destination-year", "2027",
+        "--destination-month-day", "09-03",
+        "--destination-project", "New Project",
+        "--destination-description", "New Session",
+    ]) == 0
+
+    kwargs = runner_calls[0][1]
+    assert kwargs["session"] is None
+    assert kwargs["protect_existing_state_until_first_verified_batch"] is True
+    assert kwargs["destination_selection"].project == "New Project"
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_action_intent_without_state_is_refused(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    monkeypatch.setattr("mps.main.USER_STATE_DIR", state_dir)
+    monkeypatch.setattr("mps.main.load_settings", lambda: _settings(tmp_path))
+
+    assert main(["import", "--active-session-action", "resume"]) == 1
+    assert "No active import session is available." in capsys.readouterr().out

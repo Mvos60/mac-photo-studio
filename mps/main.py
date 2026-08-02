@@ -527,6 +527,7 @@ def print_active_import_session(session) -> None:
 
 def run_interactive_import_command(
     destination_selection: ImportDestinationSelection | None = None,
+    active_session_action: str | None = None,
 ) -> int:
     from datetime import datetime
 
@@ -548,6 +549,10 @@ def run_interactive_import_command(
     active_action = None
     saved_session_label = str(state_path)
 
+    if active_session_action is not None and not state_path.exists():
+        print("No active import session is available.")
+        return 1
+
     if state_path.exists():
         try:
             restored_session = load_import_media_session(
@@ -563,12 +568,21 @@ def run_interactive_import_command(
             )
             print(f"State file       : {state_path}")
             print()
-            active_action = prompt_active_import_action(
-                can_resume=False,
+            if active_session_action == "resume":
+                return 1
+
+            active_action = (
+                active_session_action
+                or prompt_active_import_action(
+                    can_resume=False,
+                )
             )
         else:
             print_active_import_session(restored_session)
-            active_action = prompt_active_import_action()
+            active_action = (
+                active_session_action
+                or prompt_active_import_action()
+            )
             saved_session_label = (
                 restored_session.session_id
                 or str(state_path)
@@ -589,6 +603,16 @@ def run_interactive_import_command(
                 destination_selection = (
                     stored_destination.selection
                 )
+
+    if (
+        active_session_action == "start-new"
+        and destination_selection is None
+    ):
+        print(
+            "GUI Start new requires a structured "
+            "import destination."
+        )
+        return 1
 
     if destination_selection is None:
         year = prompt_year(datetime.now().year)
@@ -1122,6 +1146,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--destination-month-day")
     parser.add_argument("--destination-project")
     parser.add_argument("--destination-description")
+    parser.add_argument(
+        "--active-session-action",
+        choices=("resume", "start-new"),
+    )
     parser.add_argument("--show-config", action="store_true")
     parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
@@ -1137,6 +1165,15 @@ def main(argv: list[str] | None = None) -> int:
         for value in destination_values
     )
     destination_selection = None
+
+    if (
+        args.active_session_action is not None
+        and args.command != "import"
+    ):
+        parser.error(
+            "active session action is only valid "
+            "for the import command"
+        )
 
     if any(supplied_destination_values):
         if args.command != "import":
@@ -1165,6 +1202,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "import":
             return run_interactive_import_command(
                 destination_selection=destination_selection,
+                active_session_action=args.active_session_action,
             )
         if args.command == "darktable-complete-export":
             if len(args.command_args) != 2:

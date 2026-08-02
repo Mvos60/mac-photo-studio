@@ -344,7 +344,7 @@ def test_launch_cli_starts_resolved_terminal(monkeypatch):
 
     monkeypatch.setattr(
         "mps.gui.app.resolve_terminal_command",
-        lambda command: [
+        lambda command, **kwargs: [
             "gnome-terminal",
             "--",
             "bash",
@@ -382,7 +382,7 @@ def test_launch_cli_reports_missing_terminal(monkeypatch):
 
     monkeypatch.setattr(
         "mps.gui.app.resolve_terminal_command",
-        lambda command: None,
+        lambda command, **kwargs: None,
     )
     monkeypatch.setattr(
         "mps.gui.app.messagebox.showerror",
@@ -410,7 +410,7 @@ def test_launch_cli_reports_start_failure(monkeypatch):
 
     monkeypatch.setattr(
         "mps.gui.app.resolve_terminal_command",
-        lambda command: ["terminal", command],
+        lambda command, **kwargs: ["terminal", command],
     )
 
     def fail(*args, **kwargs):
@@ -681,23 +681,28 @@ def test_import_button_uses_destination_import_action():
     assert "command=lambda: start_import(root)" in source
 
 
-@pytest.mark.parametrize("state_bytes", [b"active", b"{malformed"])
-def test_import_action_with_active_state_launches_plain_import(
-    state_bytes,
+@pytest.mark.parametrize(
+    ("action", "expected_arguments"),
+    [
+        ("resume", ["import", "--active-session-action", "resume"]),
+    ],
+)
+def test_import_action_with_active_state_resume(
+    action,
+    expected_arguments,
     tmp_path,
     monkeypatch,
 ):
     state_path = tmp_path / "active_import_session.json"
-    state_path.write_bytes(state_bytes)
+    original_state = b"active"
+    state_path.write_bytes(original_state)
     launches = []
     library_calls = []
     selector_calls = []
+    action_calls = []
+    parent = object()
 
-    monkeypatch.setattr(
-        app_module,
-        "ACTIVE_IMPORT_SESSION",
-        state_path,
-    )
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
     monkeypatch.setattr(
         app_module,
         "get_photo_library",
@@ -710,13 +715,219 @@ def test_import_action_with_active_state_launches_plain_import(
     )
     monkeypatch.setattr(
         app_module,
+        "choose_import_session_action",
+        lambda **kwargs: action_calls.append(kwargs) or action,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "launch_cli",
+        lambda arguments: launches.append(arguments),
+    )
+
+    start_import(parent)
+
+    assert library_calls == []
+    assert selector_calls == []
+    assert action_calls == [{"parent": parent}]
+    assert launches == [expected_arguments]
+    assert state_path.read_bytes() == original_state
+
+
+def test_import_action_with_active_state_start_new_uses_selector_once(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "active_import_session.json"
+    original_state = b"active"
+    state_path.write_bytes(original_state)
+    parent = object()
+    selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-02",
+        project="Project With Spaces",
+        description="Session Description",
+    )
+    action_calls = []
+    selector_calls = []
+    launches = []
+
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_session_action",
+        lambda **kwargs: action_calls.append(kwargs) or "start-new",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_photo_library",
+        lambda: tmp_path / "Photos Master",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_destination",
+        lambda **kwargs: selector_calls.append(kwargs) or selection,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "launch_cli",
+        lambda arguments: launches.append(arguments),
+    )
+
+    start_import(parent)
+
+    assert action_calls == [{"parent": parent}]
+    assert len(selector_calls) == 1
+    assert launches == [
+        [
+            "import",
+            "--active-session-action",
+            "start-new",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-02",
+            "--destination-project",
+            "Project With Spaces",
+            "--destination-description",
+            "Session Description",
+        ]
+    ]
+    assert state_path.read_bytes() == original_state
+
+
+def test_import_action_with_active_state_cancel_starts_nothing(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "active_import_session.json"
+    original_state = b"active"
+    state_path.write_bytes(original_state)
+    launches = []
+    selectors = []
+
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_session_action",
+        lambda **kwargs: "cancel",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_destination",
+        lambda **kwargs: selectors.append(kwargs),
+    )
+    monkeypatch.setattr(
+        app_module,
         "launch_cli",
         lambda arguments: launches.append(arguments),
     )
 
     start_import(object())
 
-    assert library_calls == []
-    assert selector_calls == []
-    assert launches == [["import"]]
-    assert state_path.read_bytes() == state_bytes
+    assert selectors == []
+    assert launches == []
+    assert state_path.read_bytes() == original_state
+
+
+def test_import_terminal_command_closes_on_success_and_waits_on_error():
+    command = resolve_terminal_command(
+        "mac-photo-studio import",
+        resolver=lambda executable: executable == "gnome-terminal",
+        import_command=True,
+        title="Mac Photo Studio Import",
+    )
+
+    assert command is not None
+    shell = command[-1]
+    assert 'status=$?' in shell
+    assert 'if [ "$status" -ne 0 ]' in shell
+    assert 'Import exited with status $status.' in shell
+    assert 'read -rp "Press Enter to close..."' in shell
+    assert 'exit "$status"' in shell
+
+
+@pytest.mark.parametrize(
+    ("arguments", "title"),
+    [
+        (["import"], "Mac Photo Studio Import"),
+        (["import", "--active-session-action", "resume"], "Mac Photo Studio Import — Resume"),
+        (["import", "--active-session-action", "start-new"], "Mac Photo Studio Import — Start new"),
+    ],
+)
+def test_import_terminal_titles_are_derived_from_arguments(arguments, title):
+    command = resolve_terminal_command(
+        "mac-photo-studio import",
+        resolver=lambda executable: executable == "gnome-terminal",
+        import_command=True,
+        title=title,
+    )
+
+    assert command[1:4] == ["-t", title, "--wait"]
+    assert command[4:7] == ["--", "bash", "-lc"]
+
+
+def test_import_terminal_without_title_capability_remains_usable():
+    command = resolve_terminal_command(
+        "mac-photo-studio import",
+        resolver=lambda executable: executable == "xfce4-terminal",
+        import_command=True,
+    )
+
+    assert command[0] == "xfce4-terminal"
+    assert "--command" in command
+
+
+def test_second_import_terminal_is_blocked_while_first_is_active(monkeypatch):
+    class Process:
+        def poll(self):
+            return None
+
+    calls = []
+    dialogs = []
+    monkeypatch.setattr(app_module, "_active_import_process", Process())
+    monkeypatch.setattr("mps.gui.app.messagebox.showwarning", lambda *args: dialogs.append(args))
+    monkeypatch.setattr("mps.gui.app.subprocess.Popen", lambda *args, **kwargs: calls.append(args))
+
+    launch_cli(["import"])
+
+    assert calls == []
+    assert dialogs == [("Import Already Running", "An import terminal is already running.")]
+
+
+@pytest.mark.parametrize("exit_status", [0, 1])
+def test_finished_import_terminal_can_be_replaced(exit_status, monkeypatch):
+    class FinishedProcess:
+        def poll(self):
+            return exit_status
+
+    class NewProcess:
+        def poll(self):
+            return None
+
+    calls = []
+    monkeypatch.setattr(app_module, "_active_import_process", FinishedProcess())
+    monkeypatch.setattr(
+        app_module,
+        "resolve_terminal_command",
+        lambda command, **kwargs: ["terminal", command],
+    )
+    monkeypatch.setattr(
+        "mps.gui.app.subprocess.Popen",
+        lambda command, **kwargs: calls.append(NewProcess()) or calls[-1],
+    )
+
+    launch_cli(["import"])
+
+    assert len(calls) == 1
+    assert app_module._active_import_process is calls[0]
+
+
+def test_cancel_does_not_register_import_terminal(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "_active_import_process", None)
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", tmp_path / "missing-state.json")
+    monkeypatch.setattr(app_module, "get_photo_library", lambda: tmp_path / "photos")
+    monkeypatch.setattr(app_module, "choose_import_destination", lambda **kwargs: None)
+
+    start_import(object())
+
+    assert app_module._active_import_process is None
