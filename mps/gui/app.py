@@ -141,6 +141,10 @@ def launch_cli(arguments: list[str]) -> None:
 
 
 def start_import(parent: tk.Misc) -> None:
+    if ACTIVE_IMPORT_SESSION.exists():
+        launch_cli(["import"])
+        return
+
     selection = choose_import_destination(
         parent=parent,
         photos_root=get_photo_library(),

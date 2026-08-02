@@ -445,6 +445,11 @@ def test_import_action_cancel_starts_no_terminal(
 ):
     parent = object()
     photos_root = tmp_path / "Photos_Master"
+    monkeypatch.setattr(
+        app_module,
+        "ACTIVE_IMPORT_SESSION",
+        tmp_path / "missing-state.json",
+    )
     selector_calls = []
     launches = []
 
@@ -489,6 +494,11 @@ def test_import_action_launches_one_structured_command(
 ):
     parent = object()
     photos_root = tmp_path / "Alternate Photos"
+    monkeypatch.setattr(
+        app_module,
+        "ACTIVE_IMPORT_SESSION",
+        tmp_path / "missing-state.json",
+    )
     destination_selection = ImportDestinationSelection(
         year=2026,
         month_day="08-01",
@@ -546,3 +556,44 @@ def test_import_button_uses_destination_import_action():
     source = inspect.getsource(run_gui)
 
     assert "command=lambda: start_import(root)" in source
+
+
+@pytest.mark.parametrize("state_bytes", [b"active", b"{malformed"])
+def test_import_action_with_active_state_launches_plain_import(
+    state_bytes,
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "active_import_session.json"
+    state_path.write_bytes(state_bytes)
+    launches = []
+    library_calls = []
+    selector_calls = []
+
+    monkeypatch.setattr(
+        app_module,
+        "ACTIVE_IMPORT_SESSION",
+        state_path,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_photo_library",
+        lambda: library_calls.append(True),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "choose_import_destination",
+        lambda **kwargs: selector_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "launch_cli",
+        lambda arguments: launches.append(arguments),
+    )
+
+    start_import(object())
+
+    assert library_calls == []
+    assert selector_calls == []
+    assert launches == [["import"]]
+    assert state_path.read_bytes() == state_bytes

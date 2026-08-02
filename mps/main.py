@@ -475,6 +475,34 @@ def run_interactive_import_command(
     print("==============================")
     print()
 
+    restored_session = None
+
+    if state_path.exists():
+        try:
+            restored_session = load_import_media_session(
+                state_path
+            )
+        except (OSError, ValueError):
+            print(
+                "Saved import session cannot be resumed safely."
+            )
+            print(
+                "The saved session state is invalid or "
+                "could not be read."
+            )
+            return 1
+
+        stored_destination = restored_session.destination
+
+        if stored_destination is not None and (
+            destination_selection is None
+            or destination_selection
+            == stored_destination.selection
+        ):
+            destination_selection = (
+                stored_destination.selection
+            )
+
     if destination_selection is None:
         year = prompt_year(datetime.now().year)
         project = prompt_project()
@@ -515,23 +543,7 @@ def run_interactive_import_command(
         )
     print()
 
-    restored_session = None
-
-    if state_path.exists():
-        try:
-            restored_session = load_import_media_session(
-                state_path
-            )
-        except (OSError, ValueError):
-            print(
-                "Saved import session cannot be resumed safely."
-            )
-            print(
-                "The saved session state is invalid or "
-                "could not be read."
-            )
-            return 1
-
+    if restored_session is not None:
         print(
             "An interrupted import session was found."
         )
@@ -550,6 +562,19 @@ def run_interactive_import_command(
                 "Saved import session left unchanged."
             )
             return 0
+
+        if (
+            restored_session.destination is None
+            and destination_selection is not None
+        ):
+            print(
+                "Saved import session cannot be resumed safely."
+            )
+            print(
+                "Structured destination values cannot be "
+                "applied to this legacy session."
+            )
+            return 1
 
         if not can_resume_import_media_session(
             restored_session,

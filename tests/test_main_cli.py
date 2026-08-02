@@ -1993,6 +1993,7 @@ def test_cli_import_reports_invalid_active_state_without_traceback(
     validator_calls = []
     runner_calls = []
     resume_prompts = []
+    destination_prompts = []
     settings = _settings(tmp_path)
 
     monkeypatch.setattr(
@@ -2019,20 +2020,20 @@ def test_cli_import_reports_invalid_active_state_without_traceback(
         "builtins.input",
         lambda prompt: resume_prompts.append(prompt),
     )
-
-    exit_code = main(
-        [
-            "import",
-            "--destination-year",
-            "2026",
-            "--destination-month-day",
-            "08-01",
-            "--destination-project",
-            "Adriatic",
-            "--destination-description",
-            "Ljubljana",
-        ]
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: destination_prompts.append("year"),
     )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: destination_prompts.append("project"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: destination_prompts.append("day"),
+    )
+
+    exit_code = main(["import"])
 
     captured = capsys.readouterr()
 
@@ -2047,4 +2048,406 @@ def test_cli_import_reports_invalid_active_state_without_traceback(
     assert validator_calls == []
     assert runner_calls == []
     assert resume_prompts == []
+    assert destination_prompts == []
     assert state_path.read_bytes() == state_bytes
+
+
+def _structured_active_session(
+    tmp_path,
+    monkeypatch,
+    *,
+    configured_root: Path | None = None,
+):
+    from mps.models.import_destination_selection import (
+        ImportDestinationSelection,
+    )
+    from mps.models.import_media_session import (
+        ImportMediaSession,
+        ImportMediaSessionDestination,
+    )
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_path = state_dir / "active_import_session.json"
+    original_state = b"persisted structured state"
+    state_path.write_bytes(original_state)
+    selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+    persisted_root = selection.destination_path(
+        tmp_path / "Photos_Master"
+    )
+    restored_session = ImportMediaSession(
+        session_id="MPS-SESSION-STRUCTURED",
+        source_fingerprints={"raw-card"},
+        processed_source_files=[
+            tmp_path / "card" / "DSC0001.ARW"
+        ],
+        destination=ImportMediaSessionDestination(
+            selection=selection,
+            import_root=persisted_root,
+        ),
+    )
+    settings = Settings(
+        {
+            "paths": {
+                "photos_root": str(
+                    configured_root
+                    if configured_root is not None
+                    else tmp_path / "Photos_Master"
+                ),
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "mps.main.USER_STATE_DIR",
+        state_dir,
+    )
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: settings,
+    )
+    monkeypatch.setattr(
+        "mps.main.load_import_media_session",
+        lambda path: restored_session,
+    )
+
+    return (
+        restored_session,
+        selection,
+        persisted_root,
+        settings,
+        state_path,
+        original_state,
+    )
+
+
+@pytest.mark.parametrize(
+    "destination_arguments",
+    [
+        [],
+        [
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-01",
+            "--destination-project",
+            "Adriatic",
+            "--destination-description",
+            "Ljubljana",
+        ],
+    ],
+    ids=["plain-import", "equal-cli-selection"],
+)
+def test_cli_structured_resume_reuses_exact_persisted_selection(
+    destination_arguments,
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    (
+        restored_session,
+        persisted_selection,
+        persisted_root,
+        settings,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    destination_prompts = []
+    validator_calls = []
+    runner_calls = []
+
+    monkeypatch.setattr(
+        "mps.main.prompt_year",
+        lambda default: destination_prompts.append("year"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_project",
+        lambda: destination_prompts.append("project"),
+    )
+    monkeypatch.setattr(
+        "mps.main.prompt_day",
+        lambda: destination_prompts.append("day"),
+    )
+
+    def validate(session, root, *, settings):
+        validator_calls.append((session, root, settings))
+        return True
+
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        validate,
+    )
+
+    def run_session(received_settings, **kwargs):
+        runner_calls.append((received_settings, kwargs))
+        return SimpleNamespace(
+            batches_processed=1,
+            copied=1,
+            failed=0,
+            completed=True,
+            success=True,
+        )
+
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        run_session,
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: "",
+    )
+
+    exit_code = main(["import", *destination_arguments])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert destination_prompts == []
+    assert validator_calls == [
+        (restored_session, persisted_root, settings)
+    ]
+    assert validator_calls[0][0] is restored_session
+    assert validator_calls[0][0].destination.selection is (
+        persisted_selection
+    )
+    assert runner_calls[0][0] is settings
+    assert runner_calls[0][1]["session"] is restored_session
+    assert runner_calls[0][1]["destination_selection"] is (
+        persisted_selection
+    )
+    assert "Year        : 2026" in output
+    assert "Date        : 08-01" in output
+    assert "Project     : Adriatic" in output
+    assert "Description : Ljubljana" in output
+    assert "Day/session" not in output
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_conflicting_structured_resume_is_refused(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    (
+        restored_session,
+        persisted_selection,
+        persisted_root,
+        settings,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    validator_calls = []
+    runner_calls = []
+
+    def validate(session, root, *, settings):
+        validator_calls.append((session, root, settings))
+        return False
+
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        validate,
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+
+    exit_code = main(
+        [
+            "import",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-02",
+            "--destination-project",
+            "Different Project",
+            "--destination-description",
+            "Conflicting",
+        ]
+    )
+    output = capsys.readouterr().out
+    requested_root = (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "08"
+        / "02_Conflicting"
+        / "Different Project"
+    )
+
+    assert exit_code == 1
+    assert validator_calls == [
+        (restored_session, requested_root, settings)
+    ]
+    assert restored_session.destination.selection is persisted_selection
+    assert restored_session.destination.import_root == persisted_root
+    assert runner_calls == []
+    assert "Saved import session cannot be resumed safely." in output
+    assert state_path.read_bytes() == original_state
+    assert not requested_root.exists()
+
+
+def test_cli_legacy_resume_rejects_structured_values(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from mps.models.import_media_session import ImportMediaSession
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_path = state_dir / "active_import_session.json"
+    original_state = b"persisted legacy state"
+    state_path.write_bytes(original_state)
+    restored_session = ImportMediaSession(
+        session_id="MPS-SESSION-LEGACY",
+        source_fingerprints={"legacy-card"},
+    )
+    validator_calls = []
+    runner_calls = []
+
+    monkeypatch.setattr("mps.main.USER_STATE_DIR", state_dir)
+    monkeypatch.setattr(
+        "mps.main.load_settings",
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "mps.main.load_import_media_session",
+        lambda path: restored_session,
+    )
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda *args, **kwargs: validator_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+
+    exit_code = main(
+        [
+            "import",
+            "--destination-year",
+            "2026",
+            "--destination-month-day",
+            "08-01",
+            "--destination-project",
+            "Adriatic",
+            "--destination-description",
+            "Ljubljana",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert validator_calls == []
+    assert runner_calls == []
+    assert (
+        "Saved import session cannot be resumed safely.\n"
+        "Structured destination values cannot be applied "
+        "to this legacy session."
+        in output
+    )
+    assert state_path.read_bytes() == original_state
+
+
+def test_cli_structured_resume_with_changed_root_is_refused(
+    tmp_path,
+    monkeypatch,
+):
+    moved_root = tmp_path / "Moved Photos"
+    (
+        restored_session,
+        persisted_selection,
+        persisted_root,
+        settings,
+        state_path,
+        original_state,
+    ) = _structured_active_session(
+        tmp_path,
+        monkeypatch,
+        configured_root=moved_root,
+    )
+    validator_calls = []
+    runner_calls = []
+
+    def validate(session, root, *, settings):
+        validator_calls.append((session, root, settings))
+        return False
+
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        validate,
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+
+    exit_code = main(["import"])
+    requested_root = persisted_selection.destination_path(
+        moved_root
+    )
+
+    assert exit_code == 1
+    assert validator_calls == [
+        (restored_session, requested_root, settings)
+    ]
+    assert restored_session.destination.import_root == persisted_root
+    assert runner_calls == []
+    assert state_path.read_bytes() == original_state
+    assert not moved_root.exists()
+
+
+def test_cli_declined_structured_resume_leaves_state_unchanged(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        restored_session,
+        persisted_selection,
+        persisted_root,
+        settings,
+        state_path,
+        original_state,
+    ) = _structured_active_session(tmp_path, monkeypatch)
+    validator_calls = []
+    runner_calls = []
+
+    monkeypatch.setattr(
+        "mps.main.can_resume_import_media_session",
+        lambda *args, **kwargs: validator_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.main.run_import_media_session",
+        lambda *args, **kwargs: runner_calls.append(
+            (args, kwargs)
+        ),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+
+    exit_code = main(["import"])
+
+    assert exit_code == 0
+    assert validator_calls == []
+    assert runner_calls == []
+    assert restored_session.destination.selection is persisted_selection
+    assert restored_session.destination.import_root == persisted_root
+    assert state_path.read_bytes() == original_state
