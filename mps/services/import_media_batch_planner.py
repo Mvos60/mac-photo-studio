@@ -5,6 +5,9 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.models.import_decision import CopyOperation, ImportDecision
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_batch_plan import ImportMediaBatchPlan
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_progress import ImportProgress
@@ -149,7 +152,13 @@ def media_import_destination(
     year: int,
     project: str,
     day: str,
+    destination_selection: ImportDestinationSelection | None = None,
 ) -> Path:
+    if destination_selection is not None:
+        return destination_selection.destination_path(
+            _photos_root(settings)
+        )
+
     return (
         _photos_root(settings)
         / str(year)
@@ -165,6 +174,7 @@ def create_media_batch_plan(
     year: int,
     project: str,
     day: str,
+    destination_selection: ImportDestinationSelection | None = None,
     progress_callback: Callable[
         [ImportProgress],
         None,
@@ -177,6 +187,7 @@ def create_media_batch_plan(
         year=year,
         project=project,
         day=day,
+        destination_selection=destination_selection,
     )
 
     discovered_files = _source_files(

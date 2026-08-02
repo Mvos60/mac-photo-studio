@@ -5,6 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from mps.config import Settings
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_session import ImportMediaSession
 from mps.models.import_progress import ImportProgress
 from mps.models.import_media_wizard_result import (
@@ -36,6 +39,7 @@ def run_import_media_session(
     year: int,
     project: str,
     day: str,
+    destination_selection: ImportDestinationSelection | None = None,
     session_id: str | None = None,
     session: ImportMediaSession | None = None,
     session_state_path: str | Path | None = None,
@@ -135,6 +139,7 @@ def run_import_media_session(
             project=project,
             day=day,
             session_id=active_session_id,
+            destination_selection=destination_selection,
             progress_callback=progress_callback,
         )
 
@@ -216,6 +221,7 @@ def run_import_media_session(
             year=year,
             project=project,
             day=day,
+            destination_selection=destination_selection,
         )
 
     reconciliation = reconcile_import_media_session(

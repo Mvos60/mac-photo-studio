@@ -4,6 +4,9 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.models.card import CardScanResult
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.services.import_media_batch_planner import (
     create_media_batch_plan,
@@ -551,3 +554,106 @@ def test_planner_reports_duplicate_checking_progress(
         (1, 2, 50),
         (2, 2, 100),
     ]
+
+def test_calendar_destination_selection_is_authoritative(
+    tmp_path: Path,
+):
+    card_root = tmp_path / "card"
+    _write_photo(card_root, "DSC0001.ARW", b"raw")
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(
+            sources=[_card(card_root, raw=1)]
+        ),
+        _settings(tmp_path),
+        year=1999,
+        project="Legacy Project",
+        day="Legacy Day",
+        destination_selection=destination_selection,
+    )
+
+    assert plan.destination == (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "08"
+        / "01_Ljubljana"
+        / "Adriatic"
+    )
+    assert plan.destination.exists() is False
+
+
+def test_calendar_destination_without_description(
+    tmp_path: Path,
+):
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+    )
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(sources=[]),
+        _settings(tmp_path),
+        year=1999,
+        project="Legacy Project",
+        day="Legacy Day",
+        destination_selection=destination_selection,
+    )
+
+    assert plan.destination == (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "08"
+        / "01"
+        / "Adriatic"
+    )
+    assert plan.destination.exists() is False
+
+
+def test_calendar_destination_respects_alternate_photos_root(
+    tmp_path: Path,
+):
+    alternate_root = tmp_path / "Alternate Library"
+    settings = Settings(
+        {
+            "paths": {
+                "photos_root": str(alternate_root),
+            },
+            "media": {
+                "raw_extensions": ["ARW"],
+                "jpeg_extensions": ["JPG", "JPEG"],
+            },
+        }
+    )
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(sources=[]),
+        settings,
+        year=1999,
+        project="Legacy Project",
+        day="Legacy Day",
+        destination_selection=destination_selection,
+    )
+
+    assert plan.destination == (
+        alternate_root
+        / "2026"
+        / "08"
+        / "01_Ljubljana"
+        / "Adriatic"
+    )
+    assert alternate_root.exists() is False

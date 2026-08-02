@@ -2,6 +2,9 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.models.card import CardScanResult
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.services.import_media_wizard_runner import (
     run_import_media_session,
@@ -737,3 +740,108 @@ def test_duplicate_only_media_finishes_cleanly(
         in output
     )
     assert "Media batch processing failed." not in output
+
+def test_sequential_batches_reuse_same_calendar_destination_selection(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from mps.services.import_media_batch_processor import (
+        process_import_media_batch as real_process_import_media_batch,
+    )
+
+    root = tmp_path / "reader"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    raw_selection = ImportMediaSelection(
+        sources=[_card(root, raw=1)]
+    )
+    jpeg_selection = ImportMediaSelection(
+        sources=[_card(root, jpeg=1)]
+    )
+    discovery_count = 0
+
+    def discover(settings):
+        nonlocal discovery_count
+        discovery_count += 1
+
+        if discovery_count == 1:
+            return raw_selection
+
+        raw_file = (
+            root / "DCIM" / "100MSDCF" / "DSC0001.ARW"
+        )
+        raw_file.unlink(missing_ok=True)
+        jpeg_file = (
+            root / "DCIM" / "100MSDCF" / "DSC0001.JPG"
+        )
+        if not jpeg_file.exists():
+            jpeg_file.write_bytes(b"jpeg-data")
+        return jpeg_selection
+
+    received_selections = []
+    received_destinations = []
+
+    def process(*args, **kwargs):
+        received_selections.append(
+            kwargs["destination_selection"]
+        )
+        result = real_process_import_media_batch(
+            *args,
+            **kwargs,
+        )
+        received_destinations.append(result.plan.destination)
+        return result
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "discover_import_media",
+        discover,
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "process_import_media_batch",
+        process,
+    )
+    answers = iter(["", "no"])
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: next(answers),
+    )
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=1999,
+        project="Legacy Project",
+        day="Legacy Day",
+        destination_selection=destination_selection,
+        session_id="MPS-SESSION-CALENDAR-SEQUENTIAL",
+    )
+
+    destination = (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "08"
+        / "01_Ljubljana"
+        / "Adriatic"
+    )
+
+    assert result.success
+    assert result.batches_processed == 2
+    assert received_selections == [
+        destination_selection,
+        destination_selection,
+    ]
+    assert received_selections[0] is destination_selection
+    assert received_selections[1] is destination_selection
+    assert received_destinations == [
+        destination,
+        destination,
+    ]
+    assert (destination / "DSC0001.ARW").exists()
+    assert (destination / "DSC0001.JPG").exists()

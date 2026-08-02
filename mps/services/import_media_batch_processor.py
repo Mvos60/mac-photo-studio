@@ -5,6 +5,9 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.models.import_media_batch_result import ImportMediaBatchResult
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_media_session import ImportMediaSession
 from mps.models.import_progress import ImportProgress
@@ -49,6 +52,7 @@ def process_import_media_batch(
     project: str,
     day: str,
     session_id: str,
+    destination_selection: ImportDestinationSelection | None = None,
     progress_callback: Callable[[ImportProgress], None] | None = None,
 ) -> ImportMediaBatchResult:
     """Copy and verify currently mounted media before registering it."""
@@ -59,7 +63,19 @@ def process_import_media_batch(
         year=year,
         project=project,
         day=day,
+        destination_selection=destination_selection,
         progress_callback=progress_callback,
+    )
+
+    manifest_project = (
+        destination_selection.project
+        if destination_selection is not None
+        else project
+    )
+    manifest_day_session = (
+        destination_selection.day_session
+        if destination_selection is not None
+        else day
     )
 
     if plan.decision.warnings:
@@ -92,8 +108,8 @@ def process_import_media_batch(
         write_provenance=True,
         camera_model=camera_model,
         manifest_path=plan.destination / "import_manifest.json",
-        project=project,
-        day_session=day,
+        project=manifest_project,
+        day_session=manifest_day_session,
         session_id=session_id,
     )
 

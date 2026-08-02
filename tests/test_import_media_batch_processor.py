@@ -2,6 +2,9 @@ from pathlib import Path
 
 from mps.config import Settings
 from mps.models.card import CardScanResult
+from mps.models.import_destination_selection import (
+    ImportDestinationSelection,
+)
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_media_session import ImportMediaSession
 from mps.services.import_media_batch_processor import (
@@ -400,3 +403,49 @@ def test_duplicate_only_batch_is_successful_noop(
     assert second.media_registered is False
     assert second.verification is None
     assert second.plan.destination.exists() is False
+
+def test_destination_selection_controls_manifest_metadata(
+    tmp_path: Path,
+):
+    import json
+
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    destination_selection = ImportDestinationSelection(
+        year=2026,
+        month_day="08-01",
+        project="Adriatic",
+        description="Ljubljana",
+    )
+
+    result = process_import_media_batch(
+        ImportMediaSelection(
+            sources=[_card(root, raw=1)]
+        ),
+        ImportMediaSession(),
+        _settings(tmp_path),
+        year=1999,
+        project="Legacy Project",
+        day="Legacy Day",
+        session_id="MPS-SESSION-CALENDAR",
+        destination_selection=destination_selection,
+    )
+
+    destination = (
+        tmp_path
+        / "Photos_Master"
+        / "2026"
+        / "08"
+        / "01_Ljubljana"
+        / "Adriatic"
+    )
+    manifest = json.loads(
+        (destination / "import_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result.success
+    assert result.plan.destination == destination
+    assert manifest["project"] == "Adriatic"
+    assert manifest["day_session"] == "08-01_Ljubljana"
