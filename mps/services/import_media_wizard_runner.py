@@ -12,7 +12,17 @@ from mps.models.import_media_session import (
     ImportMediaSession,
     ImportMediaSessionDestination,
 )
+from mps.models.import_media_batch_plan import ImportMediaBatchPlan
 from mps.models.import_progress import ImportProgress
+from mps.models.import_workflow import (
+    ImportEvent,
+    ImportEventType,
+    ImportInteractionAdapter,
+    ImportRequest,
+    ImportRequestType,
+    ImportResponse,
+    ImportWaitingReason,
+)
 from mps.models.import_media_wizard_result import (
     ImportMediaWizardResult,
 )
@@ -24,7 +34,10 @@ from mps.services.import_media_discovery import discover_import_media
 from mps.services.import_media_new_source_detector import (
     detect_new_media_sources,
 )
-from mps.services.import_media_report import build_media_report
+from mps.services.import_media_cli_adapter import (
+    CliImportEventSink,
+    CliImportInteractionAdapter,
+)
 from mps.services.import_media_session_reconciler import (
     reconcile_import_media_session,
 )
@@ -110,7 +123,7 @@ def _record_destination(
         )
 
 
-def run_import_media_session(
+def _run_import_media_session(
     settings: Settings,
     *,
     year: int,
@@ -122,8 +135,13 @@ def run_import_media_session(
     session_state_path: str | Path | None = None,
     protect_existing_state_until_first_verified_batch: bool = False,
     progress_callback: Callable[[ImportProgress], None] | None = None,
+    event_sink: Callable[[ImportEvent], None] | None = None,
+    interaction_adapter: ImportInteractionAdapter | None = None,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
+
+    emit = event_sink or CliImportEventSink()
+    interaction = interaction_adapter or CliImportInteractionAdapter()
 
     active_session_id = (
         session.session_id
@@ -133,6 +151,11 @@ def run_import_media_session(
 
     active_session = session or ImportMediaSession()
     active_session.session_id = active_session_id
+
+    emit(ImportEvent(
+        ImportEventType.SESSION_STARTED,
+        {"session_id": active_session_id},
+    ))
 
     _validate_active_destination(
         active_session,
@@ -160,28 +183,41 @@ def run_import_media_session(
     import_root: Path | None = None
 
     while True:
+        emit(ImportEvent(
+            ImportEventType.MEDIA_DISCOVERY_STARTED,
+            {"session_id": active_session_id},
+        ))
         selection = discover_import_media(settings)
         new_media = detect_new_media_sources(
             active_session,
             selection,
         )
 
-        if new_media.empty and not selection.empty:
-            print(
-                "Mounted photo media has already been processed "
-                "in this session."
-            )
-        else:
-            print(build_media_report(new_media))
-
-        print()
+        emit(ImportEvent(
+            ImportEventType.MEDIA_DISCOVERED,
+            {
+                "selection": new_media,
+                "mounted_source_count": selection.source_count,
+                "new_source_count": new_media.source_count,
+                "raw_file_count": new_media.total_raw_files,
+                "jpeg_file_count": new_media.total_jpeg_files,
+                "already_processed": (
+                    new_media.empty and not selection.empty
+                ),
+            },
+        ))
 
         if new_media.empty:
             if (
                 batches_processed == 0
                 and not active_session.processed_source_files
             ):
-                print("No new photo media available.")
+                emit(ImportEvent(
+                    ImportEventType.WARNING,
+                    {
+                        "code": "no_new_media",
+                    },
+                ))
                 return ImportMediaWizardResult(
                     session=active_session,
                     session_id=active_session_id,
@@ -192,36 +228,54 @@ def run_import_media_session(
                 )
 
             if not selection.empty:
-                print(
-                    "Eject or unmount the processed media and "
-                    "insert the next card from the same photo session."
-                )
+                reason = ImportWaitingReason.PROCESSED_MEDIA_MOUNTED
+                emit(ImportEvent(
+                    ImportEventType.WARNING,
+                    {"code": "media_already_processed"},
+                ))
+                emit(ImportEvent(
+                    ImportEventType.WAITING_FOR_MEDIA,
+                    {"reason": reason},
+                ))
+                response = interaction.request(ImportRequest(
+                    ImportRequestType.NEXT_MEDIA_ACTION,
+                    reason,
+                ))
 
-                answer = input(
-                    "Press Enter to scan; type no only when all "
-                    "cards are imported: "
-                ).strip().lower()
-
-                if answer not in {"n", "no"}:
+                if response is ImportResponse.RESCAN_MEDIA:
                     continue
 
                 break
 
-            print(
-                "No new media is mounted. The next card from the "
-                "same photo session may still need to be inserted."
-            )
-            print("This includes a matching RAW or JPG card.")
+            reason = ImportWaitingReason.NO_MEDIA_MOUNTED
+            emit(ImportEvent(
+                ImportEventType.WAITING_FOR_MEDIA,
+                {"reason": reason},
+            ))
+            response = interaction.request(ImportRequest(
+                ImportRequestType.NEXT_MEDIA_ACTION,
+                reason,
+            ))
 
-            answer = input(
-                "Press Enter to scan; type no only when all "
-                "cards are imported: "
-            ).strip().lower()
-
-            if answer not in {"n", "no"}:
+            if response is ImportResponse.RESCAN_MEDIA:
                 continue
 
             break
+
+        emit(ImportEvent(
+            ImportEventType.BATCH_STARTED,
+            {"source_count": new_media.source_count},
+        ))
+
+        def publish_plan(plan: ImportMediaBatchPlan) -> None:
+            emit(ImportEvent(
+                ImportEventType.BATCH_PLANNED,
+                {
+                    "destination": plan.destination,
+                    "raw_file_count": new_media.total_raw_files,
+                    "jpeg_file_count": new_media.total_jpeg_files,
+                },
+            ))
 
         result = process_import_media_batch(
             new_media,
@@ -233,17 +287,19 @@ def run_import_media_session(
             session_id=active_session_id,
             destination_selection=destination_selection,
             progress_callback=progress_callback,
+            plan_callback=publish_plan,
         )
 
         copied += result.copied
         failed += result.failed
 
         if result.nothing_to_import:
-            print("No new photo files found.")
-            print(
-                "All discovered photo files were "
-                "already imported."
-            )
+            emit(ImportEvent(
+                ImportEventType.WARNING,
+                {
+                    "code": "nothing_to_import",
+                },
+            ))
 
             if (
                 state_path is not None
@@ -264,7 +320,12 @@ def run_import_media_session(
             )
 
         if not result.success:
-            print("Media batch processing failed.")
+            emit(ImportEvent(
+                ImportEventType.FAILED,
+                {
+                    "code": "batch_processing_failed",
+                },
+            ))
             return ImportMediaWizardResult(
                 session=active_session,
                 session_id=active_session_id,
@@ -290,27 +351,26 @@ def run_import_media_session(
             )
             protected_state_pending = False
 
-        print(
-            f"Media batch verified. "
-            f"Copied {result.copied} file(s)."
-        )
-        print("MPS has finished reading the current media.")
-        print(
-            "Keep all cards from the same photo session together, "
-            "including a matching RAW or JPG card."
-        )
-        print(
-            "Eject or unmount the current card, then insert the "
-            "next card."
-        )
-        print()
+        emit(ImportEvent(
+            ImportEventType.BATCH_COMPLETED,
+            {
+                "batch_number": batches_processed,
+                "copied": result.copied,
+                "destination": result.plan.destination,
+            },
+        ))
 
-        answer = input(
-            "Press Enter to scan; type no only when all cards "
-            "are imported: "
-        ).strip().lower()
+        reason = ImportWaitingReason.BATCH_COMPLETED
+        emit(ImportEvent(
+            ImportEventType.WAITING_FOR_MEDIA,
+            {"reason": reason},
+        ))
+        response = interaction.request(ImportRequest(
+            ImportRequestType.NEXT_MEDIA_ACTION,
+            reason,
+        ))
 
-        if answer in {"n", "no"}:
+        if response is ImportResponse.ALL_MEDIA_READY:
             break
 
     if import_root is None:
@@ -322,41 +382,25 @@ def run_import_media_session(
             destination_selection=destination_selection,
         )
 
+    emit(ImportEvent(
+        ImportEventType.RECONCILIATION_STARTED,
+        {"import_root": import_root},
+    ))
     reconciliation = reconcile_import_media_session(
         active_session,
         import_root,
         session_id=active_session_id,
     )
 
-    print("Final Import Session Reconciliation")
-    print("===================================")
-    print()
-    print(
-        f"Sources expected   : "
-        f"{reconciliation.source_reconciliation.expected_sources}"
-    )
-    print(
-        f"Sources reconciled : "
-        f"{reconciliation.source_reconciliation.reconciled_sources}"
-    )
-    print(
-        f"Session ID matches : "
-        f"{reconciliation.session_id_matches}"
-    )
-    print(
-        f"Verification safe  : "
-        f"{reconciliation.verification.safe_to_release}"
-    )
-    print(
-        f"FINAL STATUS       : "
-        f"{reconciliation.status}"
-    )
-    print()
+    emit(ImportEvent(
+        ImportEventType.RECONCILIATION_COMPLETED,
+        {"reconciliation": reconciliation},
+    ))
 
     if reconciliation.reconciled and state_path is not None:
         state_path.unlink(missing_ok=True)
 
-    return ImportMediaWizardResult(
+    result = ImportMediaWizardResult(
         session=active_session,
         session_id=active_session_id,
         batches_processed=batches_processed,
@@ -365,3 +409,58 @@ def run_import_media_session(
         completed=True,
         reconciliation=reconciliation,
     )
+    if reconciliation.reconciled:
+        emit(ImportEvent(
+            ImportEventType.COMPLETED,
+            {
+                "batches_processed": batches_processed,
+                "copied": copied,
+            },
+        ))
+    return result
+
+
+def run_import_media_session(
+    settings: Settings,
+    *,
+    year: int,
+    project: str,
+    day: str,
+    destination_selection: ImportDestinationSelection | None = None,
+    session_id: str | None = None,
+    session: ImportMediaSession | None = None,
+    session_state_path: str | Path | None = None,
+    protect_existing_state_until_first_verified_batch: bool = False,
+    progress_callback: Callable[[ImportProgress], None] | None = None,
+    event_sink: Callable[[ImportEvent], None] | None = None,
+    interaction_adapter: ImportInteractionAdapter | None = None,
+) -> ImportMediaWizardResult:
+    """Process and reconcile one or more photo media batches."""
+
+    try:
+        return _run_import_media_session(
+            settings,
+            year=year,
+            project=project,
+            day=day,
+            destination_selection=destination_selection,
+            session_id=session_id,
+            session=session,
+            session_state_path=session_state_path,
+            protect_existing_state_until_first_verified_batch=(
+                protect_existing_state_until_first_verified_batch
+            ),
+            progress_callback=progress_callback,
+            event_sink=event_sink,
+            interaction_adapter=interaction_adapter,
+        )
+    except Exception as exc:
+        if event_sink is not None:
+            event_sink(ImportEvent(
+                ImportEventType.FAILED,
+                {
+                    "code": "runner_exception",
+                    "exception_type": type(exc).__name__,
+                },
+            ))
+        raise

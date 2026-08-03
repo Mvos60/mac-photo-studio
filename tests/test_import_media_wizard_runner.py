@@ -13,6 +13,10 @@ from mps.models.import_media_session import (
     ImportMediaSession,
     ImportMediaSessionDestination,
 )
+from mps.models.import_workflow import (
+    ImportEventType,
+    ImportResponse,
+)
 from mps.services.import_media_wizard_runner import (
     run_import_media_session,
 )
@@ -1435,3 +1439,164 @@ def test_duplicate_only_media_preserves_protected_state(
 
     assert result.nothing_to_import
     assert state_path.read_bytes() == original
+
+
+class _FinishAfterBatchAdapter:
+    def __init__(self):
+        self.requests = []
+
+    def request(self, request):
+        self.requests.append(request)
+        return ImportResponse.ALL_MEDIA_READY
+
+
+def test_runner_emits_success_events_in_reliable_order(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[_card(root, raw=1)]
+        ),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda prompt: pytest.fail("injected adapter must avoid input()"),
+    )
+    events = []
+    adapter = _FinishAfterBatchAdapter()
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Events",
+        day="Success",
+        session_id="MPS-SESSION-EVENTS",
+        event_sink=events.append,
+        interaction_adapter=adapter,
+    )
+
+    event_types = [event.type for event in events]
+    assert result.success
+    assert event_types == [
+        ImportEventType.SESSION_STARTED,
+        ImportEventType.MEDIA_DISCOVERY_STARTED,
+        ImportEventType.MEDIA_DISCOVERED,
+        ImportEventType.BATCH_STARTED,
+        ImportEventType.BATCH_PLANNED,
+        ImportEventType.BATCH_COMPLETED,
+        ImportEventType.WAITING_FOR_MEDIA,
+        ImportEventType.RECONCILIATION_STARTED,
+        ImportEventType.RECONCILIATION_COMPLETED,
+        ImportEventType.COMPLETED,
+    ]
+    assert len(adapter.requests) == 1
+    assert events[2].payload["new_source_count"] == 1
+    assert events[5].payload["copied"] == 1
+    assert events[8].payload["reconciliation"].reconciled
+
+
+def test_batch_planned_is_emitted_before_copy_progress(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(
+            sources=[_card(root, raw=1)]
+        ),
+    )
+    timeline = []
+
+    run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Events",
+        day="Plan boundary",
+        event_sink=lambda event: timeline.append(event.type),
+        interaction_adapter=_FinishAfterBatchAdapter(),
+        progress_callback=lambda progress: timeline.append(progress.phase),
+    )
+
+    assert timeline.index(ImportEventType.BATCH_PLANNED) < (
+        timeline.index("copying")
+    )
+
+
+def test_runner_emits_failed_when_discovery_raises(
+    monkeypatch,
+    tmp_path: Path,
+):
+    def fail_discovery(settings):
+        raise RuntimeError("discovery failed")
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        fail_discovery,
+    )
+    events = []
+
+    with pytest.raises(RuntimeError, match="discovery failed"):
+        run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="Events",
+            day="Failure",
+            event_sink=events.append,
+        )
+
+    assert events[-1].type is ImportEventType.FAILED
+    assert events[-1].payload == {
+        "code": "runner_exception",
+        "exception_type": "RuntimeError",
+    }
+
+
+def test_duplicate_only_warns_without_completed_event(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from mps.services.import_media_batch_processor import (
+        process_import_media_batch,
+    )
+
+    root = tmp_path / "reader"
+    settings = _settings(tmp_path)
+    selection = ImportMediaSelection(
+        sources=[_card(root, jpeg=1)]
+    )
+    _write_photo(root, "DSC0001.JPG", b"jpeg-photo")
+    first = process_import_media_batch(
+        selection,
+        ImportMediaSession(),
+        settings,
+        year=2026,
+        project="First",
+        day="Session",
+        session_id="MPS-SESSION-FIRST-EVENT",
+    )
+    assert first.success
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda current_settings: selection,
+    )
+    events = []
+
+    result = run_import_media_session(
+        settings,
+        year=2026,
+        project="Second",
+        day="Session",
+        event_sink=events.append,
+    )
+
+    assert result.nothing_to_import
+    assert ImportEventType.WARNING in {event.type for event in events}
+    assert ImportEventType.COMPLETED not in {
+        event.type for event in events
+    }
