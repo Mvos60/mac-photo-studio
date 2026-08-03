@@ -34,6 +34,9 @@ from mps.services.import_media_discovery import discover_import_media
 from mps.services.import_media_new_source_detector import (
     detect_new_media_sources,
 )
+from mps.services.import_media_partial_batch_recovery import (
+    recover_verified_partial_batch_sources,
+)
 from mps.services.import_media_cli_adapter import (
     CliImportEventSink,
     CliImportInteractionAdapter,
@@ -123,6 +126,23 @@ def _record_destination(
         )
 
 
+def _reconciliation_failure_payload(reconciliation) -> dict[str, object]:
+    sources = reconciliation.source_reconciliation
+    verification = reconciliation.verification
+    return {
+        "code": "session_not_reconciled",
+        "missing_manifest_sources": tuple(sources.missing_from_manifest),
+        "unexpected_manifest_sources": tuple(
+            sources.unexpected_manifest_sources
+        ),
+        "unverified_destinations": tuple(sources.unverified_destinations),
+        "provenance_failures": tuple(sources.provenance_failures),
+        "missing_files": tuple(verification.missing_files),
+        "checksum_mismatches": tuple(verification.checksum_mismatches),
+        "provenance_errors": tuple(verification.provenance_errors),
+    }
+
+
 def _run_import_media_session(
     settings: Settings,
     *,
@@ -137,6 +157,7 @@ def _run_import_media_session(
     progress_callback: Callable[[ImportProgress], None] | None = None,
     event_sink: Callable[[ImportEvent], None] | None = None,
     interaction_adapter: ImportInteractionAdapter | None = None,
+    wait_for_initial_media: bool = False,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
 
@@ -182,6 +203,20 @@ def _run_import_media_session(
     failed = 0
     import_root: Path | None = None
 
+    def stop_incomplete(code: str) -> ImportMediaWizardResult:
+        emit(ImportEvent(
+            ImportEventType.STOPPED,
+            {"code": code},
+        ))
+        return ImportMediaWizardResult(
+            session=active_session,
+            session_id=active_session_id,
+            batches_processed=batches_processed,
+            copied=copied,
+            failed=failed,
+            completed=False,
+        )
+
     while True:
         emit(ImportEvent(
             ImportEventType.MEDIA_DISCOVERY_STARTED,
@@ -218,6 +253,21 @@ def _run_import_media_session(
                         "code": "no_new_media",
                     },
                 ))
+                if wait_for_initial_media:
+                    reason = ImportWaitingReason.NO_MEDIA_MOUNTED
+                    emit(ImportEvent(
+                        ImportEventType.WAITING_FOR_MEDIA,
+                        {"reason": reason},
+                    ))
+                    response = interaction.request(ImportRequest(
+                        ImportRequestType.NEXT_MEDIA_ACTION,
+                        reason,
+                    ))
+                    if response is ImportResponse.RESCAN_MEDIA:
+                        continue
+                    if response is ImportResponse.CANCEL_PRESERVE_STATE:
+                        return stop_incomplete("cancelled_preserve_state")
+                    return stop_incomplete("no_initial_media")
                 return ImportMediaWizardResult(
                     session=active_session,
                     session_id=active_session_id,
@@ -245,6 +295,9 @@ def _run_import_media_session(
                 if response is ImportResponse.RESCAN_MEDIA:
                     continue
 
+                if response is ImportResponse.CANCEL_PRESERVE_STATE:
+                    return stop_incomplete("cancelled_preserve_state")
+
                 break
 
             reason = ImportWaitingReason.NO_MEDIA_MOUNTED
@@ -259,6 +312,9 @@ def _run_import_media_session(
 
             if response is ImportResponse.RESCAN_MEDIA:
                 continue
+
+            if response is ImportResponse.CANCEL_PRESERVE_STATE:
+                return stop_incomplete("cancelled_preserve_state")
 
             break
 
@@ -370,6 +426,9 @@ def _run_import_media_session(
             reason,
         ))
 
+        if response is ImportResponse.CANCEL_PRESERVE_STATE:
+            return stop_incomplete("cancelled_preserve_state")
+
         if response is ImportResponse.ALL_MEDIA_READY:
             break
 
@@ -397,7 +456,58 @@ def _run_import_media_session(
         {"reconciliation": reconciliation},
     ))
 
-    if reconciliation.reconciled and state_path is not None:
+    if (
+        not reconciliation.reconciled
+        and reconciliation.source_reconciliation.unexpected_manifest_sources
+    ):
+        recovery = recover_verified_partial_batch_sources(
+            active_session,
+            import_root,
+            session_id=active_session_id,
+            protected_state_pending=protected_state_pending,
+        )
+        if recovery.recovered:
+            if state_path is not None:
+                save_import_media_session(active_session, state_path)
+            emit(ImportEvent(
+                ImportEventType.WARNING,
+                {
+                    "code": "partial_batch_state_recovered",
+                    "recovered_source_count": len(
+                        recovery.recovered_sources
+                    ),
+                },
+            ))
+            emit(ImportEvent(
+                ImportEventType.RECONCILIATION_STARTED,
+                {"import_root": import_root, "retry": True},
+            ))
+            reconciliation = reconcile_import_media_session(
+                active_session,
+                import_root,
+                session_id=active_session_id,
+            )
+            emit(ImportEvent(
+                ImportEventType.RECONCILIATION_COMPLETED,
+                {"reconciliation": reconciliation, "retry": True},
+            ))
+
+    if not reconciliation.reconciled:
+        emit(ImportEvent(
+            ImportEventType.FAILED,
+            _reconciliation_failure_payload(reconciliation),
+        ))
+        return ImportMediaWizardResult(
+            session=active_session,
+            session_id=active_session_id,
+            batches_processed=batches_processed,
+            copied=copied,
+            failed=failed,
+            completed=False,
+            reconciliation=reconciliation,
+        )
+
+    if state_path is not None:
         state_path.unlink(missing_ok=True)
 
     result = ImportMediaWizardResult(
@@ -409,14 +519,13 @@ def _run_import_media_session(
         completed=True,
         reconciliation=reconciliation,
     )
-    if reconciliation.reconciled:
-        emit(ImportEvent(
-            ImportEventType.COMPLETED,
-            {
-                "batches_processed": batches_processed,
-                "copied": copied,
-            },
-        ))
+    emit(ImportEvent(
+        ImportEventType.COMPLETED,
+        {
+            "batches_processed": batches_processed,
+            "copied": copied,
+        },
+    ))
     return result
 
 
@@ -434,6 +543,7 @@ def run_import_media_session(
     progress_callback: Callable[[ImportProgress], None] | None = None,
     event_sink: Callable[[ImportEvent], None] | None = None,
     interaction_adapter: ImportInteractionAdapter | None = None,
+    wait_for_initial_media: bool = False,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
 
@@ -453,6 +563,7 @@ def run_import_media_session(
             progress_callback=progress_callback,
             event_sink=event_sink,
             interaction_adapter=interaction_adapter,
+            wait_for_initial_media=wait_for_initial_media,
         )
     except Exception as exc:
         if event_sink is not None:

@@ -3,11 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
+from collections.abc import Callable
 
 from mps.gui.dialogs import BODY_FONT, MpsDialog
+from mps.gui.import_interaction_adapter import PendingImportInteraction
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_progress import ImportProgress
 from mps.models.import_workflow import ImportEvent, ImportEventType
+from mps.models.import_workflow import ImportResponse, ImportWaitingReason
 from mps.services.import_controller import (
     ImportController,
     ImportControllerStatus,
@@ -15,6 +18,72 @@ from mps.services.import_controller import (
 
 
 EMPTY_VALUE = "—"
+
+
+class WaitingForMediaDialog:
+    def __init__(self, parent: tk.Misc, reason: ImportWaitingReason) -> None:
+        self._result = ImportResponse.CANCEL_PRESERVE_STATE
+        self._dialog = MpsDialog(
+            parent,
+            title="Waiting for Media",
+            size="small",
+            resizable=False,
+        )
+        descriptions = {
+            ImportWaitingReason.PROCESSED_MEDIA_MOUNTED: (
+                "Eject the processed card and insert the next card."
+            ),
+            ImportWaitingReason.NO_MEDIA_MOUNTED: (
+                "Insert the next card from this photo session."
+            ),
+            ImportWaitingReason.BATCH_COMPLETED: (
+                "The current card is complete. Insert the next card."
+            ),
+        }
+        self._dialog.add_header("Waiting for Media", descriptions[reason])
+        ttk.Label(
+            self._dialog.content,
+            text="Choose what MPS should do next.",
+            font=BODY_FONT,
+        ).grid(row=0, column=0, sticky="nw")
+        self._dialog.add_footer_button(
+            text="Stop and Resume Later",
+            command=lambda: self._choose(
+                ImportResponse.CANCEL_PRESERVE_STATE
+            ),
+            column=1,
+        )
+        self._dialog.add_footer_button(
+            text="All Cards Ready",
+            command=lambda: self._choose(ImportResponse.ALL_MEDIA_READY),
+            column=2,
+        )
+        self._dialog.add_footer_button(
+            text="Scan Again",
+            command=lambda: self._choose(ImportResponse.RESCAN_MEDIA),
+            column=3,
+            padx=(0, 0),
+        )
+        self._dialog.window.protocol(
+            "WM_DELETE_WINDOW",
+            lambda: self._choose(ImportResponse.CANCEL_PRESERVE_STATE),
+        )
+
+    def _choose(self, response: ImportResponse) -> None:
+        self._result = response
+        self._dialog.close()
+
+    def wait(self) -> ImportResponse:
+        self._dialog.show()
+        self._dialog.window.wait_window()
+        return self._result
+
+
+def choose_waiting_for_media_action(
+    parent: tk.Misc,
+    reason: ImportWaitingReason,
+) -> ImportResponse:
+    return WaitingForMediaDialog(parent, reason).wait()
 
 
 class ImportWindow:
@@ -28,11 +97,14 @@ class ImportWindow:
         destination: str | Path | None = None,
         action: str | None = None,
         poll_interval_ms: int = 75,
+        on_terminal: Callable[[], None] | None = None,
     ) -> None:
         self._controller = controller
         self._poll_interval_ms = poll_interval_ms
         self._after_id: str | None = None
         self._destroyed = False
+        self._on_terminal = on_terminal
+        self._terminal_notified = False
         self._dialog = MpsDialog(
             parent,
             title="Import Photographs",
@@ -169,6 +241,7 @@ class ImportWindow:
             ImportEventType.BATCH_PLANNED: "running",
             ImportEventType.RECONCILIATION_STARTED: "running",
             ImportEventType.FAILED: "failed",
+            ImportEventType.STOPPED: "stopped",
             ImportEventType.COMPLETED: "completed",
         }
         if event.type in status_by_event:
@@ -187,21 +260,56 @@ class ImportWindow:
             progress = payload.get("progress")
             if isinstance(progress, ImportProgress):
                 self._apply_progress(progress)
+        elif event.type is ImportEventType.INTERACTION_REQUESTED:
+            interaction = payload.get("interaction")
+            if isinstance(interaction, PendingImportInteraction):
+                self._resolve_interaction(interaction)
         elif event.type is ImportEventType.WARNING:
             self._set("message", payload.get("message") or payload.get("code"))
         elif event.type is ImportEventType.FAILED:
+            code = payload.get("code")
             self._set(
                 "message",
                 payload.get("message")
                 or payload.get("exception_type")
-                or payload.get("code"),
+                or (
+                    "Session could not be reconciled."
+                    if code == "session_not_reconciled"
+                    else code
+                ),
             )
             self._set("final_status", "failed")
+        elif event.type is ImportEventType.STOPPED:
+            self._set("message", payload.get("code"))
+            self._set("final_status", "stopped")
         elif event.type is ImportEventType.RECONCILIATION_COMPLETED:
             reconciliation = payload.get("reconciliation")
             self._set("final_status", getattr(reconciliation, "status", None))
         elif event.type is ImportEventType.COMPLETED:
             self._set("final_status", payload.get("status") or "completed")
+
+        if event.type in {
+            ImportEventType.FAILED,
+            ImportEventType.STOPPED,
+            ImportEventType.COMPLETED,
+        }:
+            self._notify_terminal()
+
+    def _resolve_interaction(
+        self,
+        interaction: PendingImportInteraction,
+    ) -> None:
+        interaction.respond(choose_waiting_for_media_action(
+            self._window,
+            interaction.request.reason,
+        ))
+
+    def _notify_terminal(self) -> None:
+        if self._terminal_notified:
+            return
+        self._terminal_notified = True
+        if self._on_terminal is not None:
+            self._on_terminal()
 
     def _apply_media_discovered(self, payload: object) -> None:
         if not hasattr(payload, "get"):
@@ -236,16 +344,27 @@ class ImportWindow:
             self._variables[key].set(str(value))
 
     def close(self) -> None:
-        if self._controller.status not in {
+        if not self._controller.worker_alive:
+            for event in self._controller.drain_events():
+                self.apply_event(event)
+
+        terminal_status = self._controller.status in {
             ImportControllerStatus.IDLE,
             ImportControllerStatus.COMPLETED,
             ImportControllerStatus.FAILED,
-        }:
-            messagebox.showinfo(
+            ImportControllerStatus.STOPPED,
+        }
+        if not terminal_status and self._controller.worker_alive:
+            stop_requested = messagebox.askyesno(
                 "Import Still Active",
-                "The import is still active and cannot be closed yet.",
+                (
+                    "The import is still active and cannot be closed yet.\n\n"
+                    "Stop safely and resume later?"
+                ),
                 parent=self._window,
             )
+            if stop_requested:
+                self._controller.request_cancel()
             return
         self._destroyed = True
         if self._after_id is not None:

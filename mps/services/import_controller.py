@@ -19,6 +19,7 @@ class ImportControllerStatus(str, Enum):
     WAITING_FOR_MEDIA = "waiting_for_media"
     CANCELLING = "cancelling"
     FAILED = "failed"
+    STOPPED = "stopped"
     COMPLETED = "completed"
 
 
@@ -80,21 +81,30 @@ class ImportController:
             worker.start()
 
     def _run_worker(self, runner: ImportRunner) -> None:
-        failed_published = False
+        terminal_published = False
 
         def event_sink(event: ImportEvent) -> None:
-            nonlocal failed_published
+            nonlocal terminal_published
             if not isinstance(event, ImportEvent):
                 raise TypeError("Import event sink requires ImportEvent")
-            if event.type is ImportEventType.FAILED:
-                failed_published = True
+            if event.type in {
+                ImportEventType.FAILED,
+                ImportEventType.STOPPED,
+                ImportEventType.COMPLETED,
+            }:
+                terminal_published = True
             self._events.put(event)
 
         try:
             runner(event_sink, self._cancel_event)
+            if not terminal_published:
+                event_sink(ImportEvent(
+                    ImportEventType.STOPPED,
+                    {"code": "worker_returned_incomplete"},
+                ))
         except BaseException as exc:
             LOGGER.exception("Import worker failed")
-            if not failed_published:
+            if not terminal_published:
                 event_sink(ImportEvent(
                     ImportEventType.FAILED,
                     {
@@ -132,6 +142,8 @@ class ImportController:
                 self._status = ImportControllerStatus.WAITING_FOR_MEDIA
             elif event.type is ImportEventType.FAILED:
                 self._status = ImportControllerStatus.FAILED
+            elif event.type is ImportEventType.STOPPED:
+                self._status = ImportControllerStatus.STOPPED
             elif event.type is ImportEventType.COMPLETED:
                 self._status = ImportControllerStatus.COMPLETED
 

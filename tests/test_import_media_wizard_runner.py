@@ -1600,3 +1600,403 @@ def test_duplicate_only_warns_without_completed_event(
     assert ImportEventType.COMPLETED not in {
         event.type for event in events
     }
+
+
+def test_native_initial_no_media_waits_for_typed_interaction(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from threading import Event
+
+    from mps.gui.import_interaction_adapter import GuiImportInteractionAdapter
+    from mps.services.import_controller import (
+        ImportController,
+        ImportControllerStatus,
+    )
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+    requested = Event()
+    controller = ImportController()
+
+    def native_runner(event_sink, cancellation):
+        def forwarding_sink(event):
+            event_sink(event)
+            if event.type is ImportEventType.INTERACTION_REQUESTED:
+                requested.set()
+
+        return run_import_media_session(
+            _settings(tmp_path),
+            year=2026,
+            project="Native",
+            day="No media",
+            event_sink=event_sink,
+            interaction_adapter=GuiImportInteractionAdapter(
+                forwarding_sink,
+                cancellation,
+            ),
+            wait_for_initial_media=True,
+        )
+
+    controller.start(native_runner)
+    assert requested.wait(1)
+    events = controller.drain_events()
+    event_types = [event.type for event in events]
+    assert event_types[-3:] == [
+        ImportEventType.WARNING,
+        ImportEventType.WAITING_FOR_MEDIA,
+        ImportEventType.INTERACTION_REQUESTED,
+    ]
+    assert controller.status is ImportControllerStatus.WAITING_FOR_MEDIA
+    assert controller.worker_alive
+    events[-1].payload["interaction"].respond(
+        ImportResponse.ALL_MEDIA_READY
+    )
+    controller.join(1)
+    terminal = controller.drain_events()
+    assert [event.type for event in terminal] == [ImportEventType.STOPPED]
+    assert controller.status is ImportControllerStatus.STOPPED
+
+
+def test_native_initial_rescan_discovers_media_without_busy_loop(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    discoveries = iter([
+        ImportMediaSelection(sources=[]),
+        ImportMediaSelection(sources=[_card(root, raw=1)]),
+    ])
+    discovery_count = 0
+
+    def discover(settings):
+        nonlocal discovery_count
+        discovery_count += 1
+        return next(discoveries)
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        discover,
+    )
+
+    class Adapter:
+        responses = iter([
+            ImportResponse.RESCAN_MEDIA,
+            ImportResponse.ALL_MEDIA_READY,
+        ])
+
+        def request(self, request):
+            return next(self.responses)
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Native",
+        day="Rescan",
+        interaction_adapter=Adapter(),
+        event_sink=lambda event: None,
+        wait_for_initial_media=True,
+    )
+    assert result.success
+    assert discovery_count == 2
+
+
+def test_native_all_ready_without_batch_stops_without_reconciliation(
+    monkeypatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.reconcile_import_media_session",
+        lambda *args, **kwargs: pytest.fail("must not reconcile"),
+    )
+
+    class Adapter:
+        def request(self, request):
+            return ImportResponse.ALL_MEDIA_READY
+
+    events = []
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Native",
+        day="Empty",
+        interaction_adapter=Adapter(),
+        event_sink=events.append,
+        wait_for_initial_media=True,
+    )
+    assert result.completed is False
+    assert events[-1].type is ImportEventType.STOPPED
+    assert ImportEventType.COMPLETED not in {event.type for event in events}
+
+
+def test_native_cancel_preserves_protected_state_bytes(
+    monkeypatch,
+    tmp_path: Path,
+):
+    state_path = tmp_path / "active_session.json"
+    original = b"protected active state"
+    state_path.write_bytes(original)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.reconcile_import_media_session",
+        lambda *args, **kwargs: pytest.fail("must not reconcile"),
+    )
+
+    class Adapter:
+        def request(self, request):
+            return ImportResponse.CANCEL_PRESERVE_STATE
+
+    events = []
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Native",
+        day="Cancel",
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=True,
+        interaction_adapter=Adapter(),
+        event_sink=events.append,
+        wait_for_initial_media=True,
+    )
+    assert result.completed is False
+    assert state_path.read_bytes() == original
+    assert events[-1].type is ImportEventType.STOPPED
+
+
+def test_unreconciled_session_emits_one_explicit_failed_event(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from types import SimpleNamespace
+
+    state_path = tmp_path / "active.json"
+    state_path.write_bytes(b"preserved")
+    session = ImportMediaSession(
+        session_id="MPS-SESSION-UNRECONCILED",
+        processed_source_files=[tmp_path / "already.ARW"],
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+    reconciliation = SimpleNamespace(
+        reconciled=False,
+        source_reconciliation=SimpleNamespace(
+            missing_from_manifest=[tmp_path / "missing.ARW"],
+            unexpected_manifest_sources=[],
+            unverified_destinations=[],
+            provenance_failures=[],
+        ),
+        verification=SimpleNamespace(
+            missing_files=[], checksum_mismatches=[], provenance_errors=[]
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "reconcile_import_media_session",
+        lambda *args, **kwargs: reconciliation,
+    )
+    events = []
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Project",
+        day="Day",
+        session=session,
+        session_state_path=state_path,
+        interaction_adapter=_FinishAfterBatchAdapter(),
+        event_sink=events.append,
+    )
+    terminal = [event for event in events if event.type in {
+        ImportEventType.FAILED,
+        ImportEventType.STOPPED,
+        ImportEventType.COMPLETED,
+    }]
+    assert result.completed is False
+    assert len(terminal) == 1
+    assert terminal[0].type is ImportEventType.FAILED
+    assert terminal[0].payload["code"] == "session_not_reconciled"
+    assert terminal[0].payload["missing_manifest_sources"] == (
+        tmp_path / "missing.ARW",
+    )
+    assert state_path.read_bytes() == b"preserved"
+
+
+def test_resume_recovers_verified_manifest_source_then_completes(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from mps.services.import_media_batch_processor import (
+        process_import_media_batch,
+    )
+    from mps.services.import_media_session_store import (
+        load_import_media_session,
+        save_import_media_session,
+    )
+
+    settings = _settings(tmp_path)
+    card = tmp_path / "card"
+    _write_photo(card, "FIRST.JPG", b"first")
+    _write_photo(card, "RECOVER.JPG", b"recover")
+    selection = ImportDestinationSelection(2026, "08-03", "Recovery")
+    session_id = "MPS-SESSION-RECOVER-RUNNER"
+    complete_session = ImportMediaSession()
+    processed = process_import_media_batch(
+        ImportMediaSelection(sources=[_card(card, jpeg=2)]),
+        complete_session,
+        settings,
+        year=2026,
+        project="Recovery",
+        day="08-03",
+        destination_selection=selection,
+        session_id=session_id,
+    )
+    assert processed.success
+    import_root = processed.plan.destination
+    first = card / "DCIM" / "100MSDCF" / "FIRST.JPG"
+    recover = card / "DCIM" / "100MSDCF" / "RECOVER.JPG"
+    lagging = ImportMediaSession(
+        session_id=session_id,
+        destination=ImportMediaSessionDestination(selection, import_root),
+        processed_source_files=[first],
+    )
+    state_path = tmp_path / "active.json"
+    save_import_media_session(lagging, state_path)
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+    processor_calls = []
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.process_import_media_batch",
+        lambda *args, **kwargs: processor_calls.append(True),
+    )
+    from mps.services import import_media_wizard_runner as runner_module
+    authoritative_reconcile = runner_module.reconcile_import_media_session
+    reconciliation_calls = []
+
+    def reconcile(*args, **kwargs):
+        reconciliation_calls.append(True)
+        if len(reconciliation_calls) == 2:
+            persisted = load_import_media_session(state_path)
+            assert recover in persisted.processed_source_files
+        return authoritative_reconcile(*args, **kwargs)
+
+    monkeypatch.setattr(
+        runner_module,
+        "reconcile_import_media_session",
+        reconcile,
+    )
+    events = []
+    result = run_import_media_session(
+        settings,
+        year=selection.year,
+        project=selection.project,
+        day=selection.day_session,
+        destination_selection=selection,
+        session=lagging,
+        session_state_path=state_path,
+        interaction_adapter=_FinishAfterBatchAdapter(),
+        event_sink=events.append,
+    )
+    assert result.completed is True
+    assert result.reconciliation.reconciled is True
+    assert recover in result.session.processed_source_files
+    assert processor_calls == []
+    assert len(reconciliation_calls) == 2
+    assert not state_path.exists()
+    assert [event.type for event in events].count(
+        ImportEventType.RECONCILIATION_STARTED
+    ) == 2
+    assert [event.type for event in events].count(
+        ImportEventType.RECONCILIATION_COMPLETED
+    ) == 2
+    assert [event.type for event in events].count(
+        ImportEventType.COMPLETED
+    ) == 1
+    assert any(
+        event.type is ImportEventType.WARNING
+        and event.payload.get("code") == "partial_batch_state_recovered"
+        and event.payload.get("recovered_source_count") == 1
+        for event in events
+    )
+
+
+def test_protected_start_new_does_not_recover_into_old_state(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from types import SimpleNamespace
+    from mps.services.import_media_partial_batch_recovery import (
+        PartialBatchRecovery,
+    )
+
+    state_path = tmp_path / "active.json"
+    original = b"old protected session"
+    state_path.write_bytes(original)
+    session = ImportMediaSession(
+        session_id="MPS-SESSION-NEW",
+        processed_source_files=[tmp_path / "new.ARW"],
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[]),
+    )
+    reconciliation = SimpleNamespace(
+        reconciled=False,
+        source_reconciliation=SimpleNamespace(
+            missing_from_manifest=[],
+            unexpected_manifest_sources=[tmp_path / "partial.ARW"],
+            unverified_destinations=[],
+            provenance_failures=[],
+        ),
+        verification=SimpleNamespace(
+            missing_files=[], checksum_mismatches=[], provenance_errors=[]
+        ),
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "reconcile_import_media_session",
+        lambda *args, **kwargs: reconciliation,
+    )
+    recovery_calls = []
+
+    def recover(*args, **kwargs):
+        recovery_calls.append(kwargs)
+        return PartialBatchRecovery(reason="protected_state_pending")
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner."
+        "recover_verified_partial_batch_sources",
+        recover,
+    )
+    events = []
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="New",
+        day="Day",
+        session=session,
+        session_state_path=state_path,
+        protect_existing_state_until_first_verified_batch=True,
+        interaction_adapter=_FinishAfterBatchAdapter(),
+        event_sink=events.append,
+    )
+    assert result.completed is False
+    assert recovery_calls == [{
+        "session_id": "MPS-SESSION-NEW",
+        "protected_state_pending": True,
+    }]
+    assert state_path.read_bytes() == original
+    assert [event.type for event in events].count(ImportEventType.FAILED) == 1
+    assert ImportEventType.STOPPED not in {event.type for event in events}

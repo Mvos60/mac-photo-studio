@@ -63,7 +63,7 @@ def test_reconciliation_completed_does_not_complete_controller():
     )))
     controller.join(1)
     controller.drain_events()
-    assert controller.status is ImportControllerStatus.STARTING
+    assert controller.status is ImportControllerStatus.STOPPED
 
 
 @pytest.mark.parametrize(
@@ -80,9 +80,7 @@ def test_reconciliation_completed_does_not_complete_controller():
 )
 def test_event_status_transition(event_type, expected):
     controller = ImportController()
-    controller.start(lambda sink, token: sink(ImportEvent(event_type)))
-    controller.join(1)
-    controller.drain_events()
+    controller._apply_event_status(ImportEvent(event_type))
     assert controller.status is expected
 
 
@@ -150,3 +148,68 @@ def test_worker_has_no_tk_callback_and_new_run_can_start():
     controller.join(1)
     controller.drain_events()
     assert threads == ["mps-import-worker", "mps-import-worker"]
+
+
+def test_worker_return_without_terminal_emits_one_stopped_event():
+    controller = ImportController()
+    controller.start(lambda sink, token: sink(ImportEvent(
+        ImportEventType.SESSION_STARTED
+    )))
+    controller.join(1)
+    events = controller.drain_events()
+    assert [event.type for event in events] == [
+        ImportEventType.SESSION_STARTED,
+        ImportEventType.STOPPED,
+    ]
+    assert controller.status is ImportControllerStatus.STOPPED
+
+
+def test_explicit_stopped_event_is_not_duplicated():
+    controller = ImportController()
+    controller.start(lambda sink, token: sink(ImportEvent(
+        ImportEventType.STOPPED
+    )))
+    controller.join(1)
+    assert [event.type for event in controller.drain_events()] == [
+        ImportEventType.STOPPED
+    ]
+
+
+def test_request_cancel_unblocks_pending_interaction_with_preserve_response():
+    from mps.gui.import_interaction_adapter import GuiImportInteractionAdapter
+    from mps.models.import_workflow import (
+        ImportRequest,
+        ImportRequestType,
+        ImportResponse,
+        ImportWaitingReason,
+    )
+
+    controller = ImportController()
+    requested = Event()
+    responses = []
+
+    def runner(event_sink, cancellation):
+        def forwarding_sink(event):
+            event_sink(event)
+            if event.type is ImportEventType.INTERACTION_REQUESTED:
+                requested.set()
+
+        adapter = GuiImportInteractionAdapter(
+            forwarding_sink,
+            cancellation,
+        )
+        responses.append(adapter.request(ImportRequest(
+            ImportRequestType.NEXT_MEDIA_ACTION,
+            ImportWaitingReason.NO_MEDIA_MOUNTED,
+        )))
+
+    controller.start(runner)
+    assert requested.wait(1)
+    controller.request_cancel()
+    controller.join(1)
+    assert not controller.worker_alive
+    assert responses == [ImportResponse.CANCEL_PRESERVE_STATE]
+    assert [event.type for event in controller.drain_events()] == [
+        ImportEventType.INTERACTION_REQUESTED,
+        ImportEventType.STOPPED,
+    ]

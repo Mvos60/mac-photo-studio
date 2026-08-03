@@ -1,6 +1,7 @@
 import pytest
 
 from mps.gui import app as app_module
+from mps.config import Settings
 from mps.gui.app import (
     bind_system_status_refresh,
     build_cli_command,
@@ -230,15 +231,29 @@ def test_system_status_refresh_removes_interrupted_session(
     class Status:
         def __init__(self):
             self.children = []
+            self.column_options = {}
 
         def winfo_children(self):
             children = self.children
             self.children = []
             return children
 
+        def columnconfigure(self, column, **kwargs):
+            self.column_options[column] = kwargs
+
     status = Status()
     monkeypatch.setattr(app_module.tk, "Label", Widget)
     monkeypatch.setattr(app_module.ttk, "Label", Widget)
+
+    class Font:
+        def __init__(self, *, font):
+            assert font == ("ready",)
+
+        def measure(self, text):
+            assert text in {"ATTENTION RECOMMENDED", "READY FOR IMPORT"}
+            return 237
+
+    monkeypatch.setattr(app_module.tkfont, "Font", Font)
 
     def render():
         start = len(created)
@@ -255,6 +270,16 @@ def test_system_status_refresh_removes_interrupted_session(
 
     assert "An interrupted import session is available" in first_texts
     assert "ATTENTION RECOMMENDED" in first_texts
+    attention = next(
+        widget
+        for widget in created
+        if widget.kwargs.get("text") == "ATTENTION RECOMMENDED"
+    )
+    assert "padding" not in attention.kwargs
+    assert status.column_options[1] == {
+        "weight": 1,
+        "minsize": 237 + app_module.SYSTEM_STATUS_HEADLINE_MARGIN,
+    }
 
     first_widgets = list(status.children)
     state_path.unlink()
@@ -610,7 +635,7 @@ def test_import_action_cancel_starts_no_terminal(
         "",
     ],
 )
-def test_import_action_launches_one_structured_command(
+def test_import_action_starts_one_native_structured_import(
     description,
     tmp_path,
     monkeypatch,
@@ -629,7 +654,7 @@ def test_import_action_launches_one_structured_command(
         description=description,
     )
     selector_calls = []
-    launches = []
+    starts = []
 
     monkeypatch.setattr(
         app_module,
@@ -645,9 +670,13 @@ def test_import_action_launches_one_structured_command(
         ),
     )
     monkeypatch.setattr(
-        app_module,
-        "launch_cli",
-        lambda arguments: launches.append(arguments),
+        app_module, "load_settings", lambda: Settings({
+            "paths": {"photos_root": str(photos_root)}
+        })
+    )
+    monkeypatch.setattr(
+        app_module, "_start_native_import",
+        lambda *args, **kwargs: starts.append((args, kwargs)),
     )
 
     start_import(parent)
@@ -658,19 +687,14 @@ def test_import_action_launches_one_structured_command(
             "photos_root": photos_root,
         }
     ]
-    assert launches == [
-        [
-            "import",
-            "--destination-year",
-            "2026",
-            "--destination-month-day",
-            "08-01",
-            "--destination-project",
-            "Adriatic Journey",
-            "--destination-description",
-            description,
-        ]
-    ]
+    assert len(starts) == 1
+    kwargs = starts[0][1]
+    assert kwargs["destination_selection"] is destination_selection
+    assert kwargs["destination"] == destination_selection.destination_path(
+        photos_root
+    )
+    assert kwargs["session"] is None
+    assert kwargs["protect_existing_state"] is False
 
 
 def test_import_button_uses_destination_import_action():
@@ -678,25 +702,17 @@ def test_import_button_uses_destination_import_action():
 
     source = inspect.getsource(run_gui)
 
-    assert "command=lambda: start_import(root)" in source
+    assert "command=lambda: start_import(root, refresh_system_status)" in source
 
 
-@pytest.mark.parametrize(
-    ("action", "expected_arguments"),
-    [
-        ("resume", ["import", "--active-session-action", "resume"]),
-    ],
-)
-def test_import_action_with_active_state_resume(
-    action,
-    expected_arguments,
+def test_import_action_with_structured_state_resumes_natively(
     tmp_path,
     monkeypatch,
 ):
     state_path = tmp_path / "active_import_session.json"
     original_state = b"active"
     state_path.write_bytes(original_state)
-    launches = []
+    starts = []
     library_calls = []
     selector_calls = []
     action_calls = []
@@ -713,15 +729,32 @@ def test_import_action_with_active_state_resume(
         "choose_import_destination",
         lambda **kwargs: selector_calls.append(kwargs),
     )
+    from mps.models.import_media_session import (
+        ImportMediaSession,
+        ImportMediaSessionDestination,
+    )
+    selection = ImportDestinationSelection(
+        year=2026, month_day="08-01", project="Adriatic"
+    )
+    import_root = tmp_path / "Photos" / "2026" / "08" / "01" / "Adriatic"
+    session = ImportMediaSession(
+        session_id="S-RESUME",
+        destination=ImportMediaSessionDestination(selection, import_root),
+    )
     monkeypatch.setattr(
-        app_module,
-        "choose_import_session_action",
-        lambda **kwargs: action_calls.append(kwargs) or action,
+        app_module, "choose_import_session_action",
+        lambda **kwargs: action_calls.append(kwargs) or "resume",
+    )
+    monkeypatch.setattr(
+        app_module, "load_import_media_session", lambda path: session
+    )
+    monkeypatch.setattr(
+        app_module, "can_resume_import_media_session", lambda *a, **k: True
     )
     monkeypatch.setattr(
         app_module,
-        "launch_cli",
-        lambda arguments: launches.append(arguments),
+        "_start_native_import",
+        lambda *args, **kwargs: starts.append((args, kwargs)),
     )
 
     start_import(parent)
@@ -729,7 +762,11 @@ def test_import_action_with_active_state_resume(
     assert library_calls == []
     assert selector_calls == []
     assert action_calls == [{"parent": parent}]
-    assert launches == [expected_arguments]
+    assert len(starts) == 1
+    assert starts[0][1]["destination_selection"] is selection
+    assert starts[0][1]["destination"] is import_root
+    assert starts[0][1]["session"] is session
+    assert starts[0][1]["protect_existing_state"] is False
     assert state_path.read_bytes() == original_state
 
 
@@ -749,7 +786,7 @@ def test_import_action_with_active_state_start_new_uses_selector_once(
     )
     action_calls = []
     selector_calls = []
-    launches = []
+    starts = []
 
     monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
     monkeypatch.setattr(
@@ -768,30 +805,26 @@ def test_import_action_with_active_state_start_new_uses_selector_once(
         lambda **kwargs: selector_calls.append(kwargs) or selection,
     )
     monkeypatch.setattr(
-        app_module,
-        "launch_cli",
-        lambda arguments: launches.append(arguments),
+        app_module.messagebox, "askyesno", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        app_module, "load_settings", lambda: Settings({
+            "paths": {"photos_root": str(tmp_path / "Photos Master")}
+        })
+    )
+    monkeypatch.setattr(
+        app_module, "_start_native_import",
+        lambda *args, **kwargs: starts.append((args, kwargs)),
     )
 
     start_import(parent)
 
     assert action_calls == [{"parent": parent}]
     assert len(selector_calls) == 1
-    assert launches == [
-        [
-            "import",
-            "--active-session-action",
-            "start-new",
-            "--destination-year",
-            "2026",
-            "--destination-month-day",
-            "08-02",
-            "--destination-project",
-            "Project With Spaces",
-            "--destination-description",
-            "Session Description",
-        ]
-    ]
+    assert len(starts) == 1
+    assert starts[0][1]["session"] is None
+    assert starts[0][1]["destination_selection"] is selection
+    assert starts[0][1]["protect_existing_state"] is True
     assert state_path.read_bytes() == original_state
 
 
@@ -827,6 +860,210 @@ def test_import_action_with_active_state_cancel_starts_nothing(
     assert selectors == []
     assert launches == []
     assert state_path.read_bytes() == original_state
+
+
+def test_legacy_resume_uses_native_legacy_values_without_migration(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.gui.legacy_import_resume_dialog import LegacyImportDestination
+    from mps.models.import_media_session import ImportMediaSession
+
+    state_path = tmp_path / "active_import_session.json"
+    original = b"legacy-state"
+    state_path.write_bytes(original)
+    photos_root = tmp_path / "Photos"
+    settings = Settings({"paths": {"photos_root": str(photos_root)}})
+    session = ImportMediaSession(session_id="S-LEGACY")
+    legacy_calls = []
+    calendar_calls = []
+    starts = []
+    validations = []
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
+    monkeypatch.setattr(app_module, "load_settings", lambda: settings)
+    monkeypatch.setattr(
+        app_module, "choose_import_session_action", lambda **kwargs: "resume"
+    )
+    monkeypatch.setattr(
+        app_module, "load_import_media_session", lambda path: session
+    )
+    monkeypatch.setattr(
+        app_module,
+        "choose_legacy_import_destination",
+        lambda **kwargs: legacy_calls.append(kwargs)
+        or LegacyImportDestination(2024, "Legacy", "Day 3"),
+    )
+    monkeypatch.setattr(
+        app_module, "choose_import_destination",
+        lambda **kwargs: calendar_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        app_module, "can_resume_import_media_session",
+        lambda current, root, **kwargs: validations.append(root) or True,
+    )
+    monkeypatch.setattr(
+        app_module, "_start_native_import",
+        lambda *args, **kwargs: starts.append(kwargs),
+    )
+    monkeypatch.setattr(
+        app_module, "launch_cli",
+        lambda arguments: pytest.fail("GUI resume must not launch terminal"),
+    )
+
+    start_import(object())
+
+    expected_root = photos_root / "2024" / "Legacy" / "Day 3"
+    assert len(legacy_calls) == 1
+    assert calendar_calls == []
+    assert validations == [expected_root]
+    assert starts[0]["destination_selection"] is None
+    assert starts[0]["destination"] == expected_root
+    assert starts[0]["session"] is session
+    assert session.destination is None
+    assert state_path.read_bytes() == original
+
+
+def test_legacy_resume_cancel_preserves_state_and_starts_nothing(
+    tmp_path,
+    monkeypatch,
+):
+    from mps.models.import_media_session import ImportMediaSession
+
+    state_path = tmp_path / "active_import_session.json"
+    state_path.write_bytes(b"legacy")
+    starts = []
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
+    monkeypatch.setattr(
+        app_module, "choose_import_session_action", lambda **kwargs: "resume"
+    )
+    monkeypatch.setattr(
+        app_module, "load_import_media_session",
+        lambda path: ImportMediaSession(session_id="S-LEGACY"),
+    )
+    monkeypatch.setattr(
+        app_module, "choose_legacy_import_destination", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        app_module, "_start_native_import",
+        lambda *args, **kwargs: starts.append(kwargs),
+    )
+    start_import(object())
+    assert starts == []
+    assert state_path.read_bytes() == b"legacy"
+
+
+def test_corrupt_resume_state_shows_error_and_remains_unchanged(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "active_import_session.json"
+    original = b"not-json"
+    state_path.write_bytes(original)
+    errors = []
+    starts = []
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
+    monkeypatch.setattr(
+        app_module, "choose_import_session_action", lambda **kwargs: "resume"
+    )
+    monkeypatch.setattr(
+        app_module.messagebox, "showerror",
+        lambda *args, **kwargs: errors.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        app_module, "_start_native_import",
+        lambda *args, **kwargs: starts.append(kwargs),
+    )
+    start_import(object())
+    assert errors
+    assert starts == []
+    assert state_path.read_bytes() == original
+
+
+def test_start_new_rejection_preserves_state_and_starts_nothing(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "active_import_session.json"
+    original = b"active"
+    state_path.write_bytes(original)
+    selection = ImportDestinationSelection(2026, "08-02", "Project")
+    starts = []
+    monkeypatch.setattr(app_module, "ACTIVE_IMPORT_SESSION", state_path)
+    monkeypatch.setattr(
+        app_module, "choose_import_session_action", lambda **kwargs: "start-new"
+    )
+    monkeypatch.setattr(
+        app_module, "choose_import_destination", lambda **kwargs: selection
+    )
+    monkeypatch.setattr(
+        app_module.messagebox, "askyesno", lambda *args, **kwargs: False
+    )
+    monkeypatch.setattr(
+        app_module, "_start_native_import",
+        lambda *args, **kwargs: starts.append(kwargs),
+    )
+    start_import(object())
+    assert starts == []
+    assert state_path.read_bytes() == original
+
+
+def test_active_native_import_blocks_second_action(monkeypatch):
+    class ActiveController:
+        is_active = True
+
+    warnings = []
+    monkeypatch.setattr(app_module, "_import_controller", ActiveController())
+    monkeypatch.setattr(
+        app_module.messagebox, "showwarning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        app_module, "choose_import_destination",
+        lambda **kwargs: pytest.fail("selector must not open"),
+    )
+    start_import(object())
+    assert warnings
+
+
+def test_native_start_opens_window_and_starts_runner_once(
+    tmp_path,
+    monkeypatch,
+):
+    windows = []
+    runner_calls = []
+
+    class Controller:
+        def start(self, runner):
+            runner_calls.append(runner)
+
+    monkeypatch.setattr(app_module, "_import_controller", Controller())
+    monkeypatch.setattr(
+        app_module, "ImportWindow",
+        lambda *args, **kwargs: windows.append((args, kwargs)) or object(),
+    )
+    received = []
+    monkeypatch.setattr(
+        app_module, "run_import_media_session",
+        lambda settings, **kwargs: received.append(kwargs) or object(),
+    )
+    selection = ImportDestinationSelection(2026, "08-01", "Project")
+    settings = Settings({"paths": {"photos_root": str(tmp_path)}})
+    app_module._start_native_import(
+        object(), settings=settings, year=2026, project="Project",
+        day=selection.day_session, destination_selection=selection,
+        destination=selection.destination_path(tmp_path), action="New import",
+        session=None, protect_existing_state=False, refresh_status=None,
+    )
+    assert len(windows) == 1
+    assert len(runner_calls) == 1
+    events = []
+    event_sink = events.append
+    runner_calls[0](event_sink, __import__("threading").Event())
+    assert len(received) == 1
+    assert received[0]["event_sink"] is event_sink
+    assert received[0]["interaction_adapter"] is not None
+    assert received[0]["destination_selection"] is selection
+    assert received[0]["wait_for_initial_media"] is True
 
 
 def test_import_terminal_command_closes_on_success_and_waits_on_error():

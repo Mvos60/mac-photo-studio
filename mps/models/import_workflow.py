@@ -16,10 +16,12 @@ class ImportEventType(str, Enum):
     BATCH_PLANNED = "batch_planned"
     BATCH_COMPLETED = "batch_completed"
     PROGRESS = "progress"
+    INTERACTION_REQUESTED = "interaction_requested"
     RECONCILIATION_STARTED = "reconciliation_started"
     RECONCILIATION_COMPLETED = "reconciliation_completed"
     WARNING = "warning"
     FAILED = "failed"
+    STOPPED = "stopped"
     COMPLETED = "completed"
 
 
@@ -57,6 +59,7 @@ class ImportRequest:
 class ImportResponse(str, Enum):
     RESCAN_MEDIA = "rescan_media"
     ALL_MEDIA_READY = "all_media_ready"
+    CANCEL_PRESERVE_STATE = "cancel_preserve_state"
 
 
 class ImportInteractionAdapter(Protocol):

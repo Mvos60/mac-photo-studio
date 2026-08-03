@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox, ttk
 from typing import Callable
 
@@ -13,6 +14,11 @@ from mps.constants import ACTIVE_IMPORT_SESSION
 from mps.gui.culling_review import show_culling_review
 from mps.gui.import_destination_selector import (
     choose_import_destination,
+)
+from mps.gui.import_interaction_adapter import GuiImportInteractionAdapter
+from mps.gui.import_window import ImportWindow
+from mps.gui.legacy_import_resume_dialog import (
+    choose_legacy_import_destination,
 )
 from mps.gui.import_session_action_selector import (
     choose_import_session_action,
@@ -27,12 +33,22 @@ from mps.gui.session_picker import (
 )
 from mps.gui.photo_picker import choose_photo as choose_photo_dialog
 from mps.paths import get_photo_library
+from mps.models.import_workflow import ImportEvent, ImportEventType
 from mps.services.app_resolver import resolve_application
+from mps.services.import_controller import ImportController
+from mps.services.import_media_batch_planner import media_import_destination
+from mps.services.import_media_resume_validator import (
+    can_resume_import_media_session,
+)
+from mps.services.import_media_session_store import load_import_media_session
+from mps.services.import_media_wizard_runner import run_import_media_session
 from mps.version import get_version
 
 
 TerminalResolver = Callable[[str], str | None]
+SYSTEM_STATUS_HEADLINE_MARGIN = 12
 _active_import_process: subprocess.Popen | None = None
+_import_controller = ImportController()
 
 
 def build_cli_command(arguments: list[str]) -> str:
@@ -193,8 +209,22 @@ def launch_cli(arguments: list[str]) -> None:
         )
 
 
-def start_import(parent: tk.Misc) -> None:
+def start_import(
+    parent: tk.Misc,
+    refresh_status: Callable[[], None] | None = None,
+) -> None:
+    if _import_controller.is_active:
+        messagebox.showwarning(
+            "Import Already Running",
+            "A native import is already running.",
+            parent=parent,
+        )
+        return
+
+    settings = load_settings()
     active_action = None
+    restored_session = None
+    legacy_values = None
 
     if ACTIVE_IMPORT_SESSION.exists():
         active_action = choose_import_session_action(
@@ -205,12 +235,67 @@ def start_import(parent: tk.Misc) -> None:
             return
 
         if active_action == "resume":
-            launch_cli(
-                [
-                    "import",
-                    "--active-session-action",
-                    "resume",
-                ]
+            try:
+                restored_session = load_import_media_session(
+                    ACTIVE_IMPORT_SESSION
+                )
+            except (OSError, ValueError):
+                messagebox.showerror(
+                    "Import Session Unavailable",
+                    "The saved import session could not be read safely.",
+                    parent=parent,
+                )
+                return
+
+            stored_destination = restored_session.destination
+            if stored_destination is None:
+                legacy_values = choose_legacy_import_destination(
+                    parent=parent,
+                    settings=settings,
+                )
+                if legacy_values is None:
+                    return
+                destination_selection = None
+                year = legacy_values.year
+                project = legacy_values.project
+                day = legacy_values.day
+                import_root = media_import_destination(
+                    settings,
+                    year=year,
+                    project=project,
+                    day=day,
+                )
+            else:
+                destination_selection = stored_destination.selection
+                year = destination_selection.year
+                project = destination_selection.project
+                day = destination_selection.day_session
+                import_root = stored_destination.import_root
+
+            if not can_resume_import_media_session(
+                restored_session,
+                import_root,
+                settings=settings,
+            ):
+                messagebox.showerror(
+                    "Import Session Unavailable",
+                    "The saved import session cannot be resumed safely.",
+                    parent=parent,
+                )
+                return
+
+            _start_native_import(
+                parent,
+                settings=settings,
+                year=year,
+                project=project,
+                day=day,
+                destination_selection=destination_selection,
+                destination=import_root,
+                action="Resume",
+                session=restored_session,
+                protect_existing_state=False,
+                refresh_status=refresh_status,
             )
             return
 
@@ -222,29 +307,94 @@ def start_import(parent: tk.Misc) -> None:
     if selection is None:
         return
 
-    arguments = ["import"]
-
     if active_action == "start-new":
-        arguments.extend(
-            [
-                "--active-session-action",
-                "start-new",
-            ]
+        confirmed = messagebox.askyesno(
+            "Confirm Start New",
+            (
+                "START NEW will replace the saved session only after "
+                "the first new media batch has copied and verified "
+                "successfully.\n\nContinue?"
+            ),
+            parent=parent,
+        )
+        if not confirmed:
+            return
+
+    import_root = media_import_destination(
+        settings,
+        year=selection.year,
+        project=selection.project,
+        day=selection.day_session,
+        destination_selection=selection,
+    )
+    _start_native_import(
+        parent,
+        settings=settings,
+        year=selection.year,
+        project=selection.project,
+        day=selection.day_session,
+        destination_selection=selection,
+        destination=import_root,
+        action=("Start new" if active_action == "start-new" else "New import"),
+        session=None,
+        protect_existing_state=(active_action == "start-new"),
+        refresh_status=refresh_status,
+    )
+
+
+def _start_native_import(
+    parent: tk.Misc,
+    *,
+    settings: object,
+    year: int,
+    project: str,
+    day: str,
+    destination_selection: object | None,
+    destination: Path,
+    action: str,
+    session: object | None,
+    protect_existing_state: bool,
+    refresh_status: Callable[[], None] | None,
+) -> None:
+    window = ImportWindow(
+        parent,
+        _import_controller,
+        destination=destination,
+        action=action,
+        on_terminal=refresh_status,
+    )
+
+    def runner(event_sink, cancellation) -> object:
+        interaction = GuiImportInteractionAdapter(
+            event_sink,
+            cancellation,
         )
 
-    arguments.extend(
-        [
-            "--destination-year",
-            str(selection.year),
-            "--destination-month-day",
-            selection.month_day,
-            "--destination-project",
-            selection.project,
-            "--destination-description",
-            selection.description,
-        ]
-    )
-    launch_cli(arguments)
+        def progress_callback(progress) -> None:
+            event_sink(ImportEvent(
+                ImportEventType.PROGRESS,
+                {"progress": progress},
+            ))
+
+        return run_import_media_session(
+            settings,
+            year=year,
+            project=project,
+            day=day,
+            destination_selection=destination_selection,
+            session=session,
+            session_state_path=ACTIVE_IMPORT_SESSION,
+            protect_existing_state_until_first_verified_batch=(
+                protect_existing_state
+            ),
+            progress_callback=progress_callback,
+            event_sink=event_sink,
+            interaction_adapter=interaction,
+            wait_for_initial_media=True,
+        )
+
+    _import_controller.start(runner)
+    del window
 
 
 def open_path(path: Path) -> None:
@@ -398,6 +548,17 @@ def render_system_status(
         for level, _ in status_items
     )
     overall_level = "green" if overall_ready else "amber"
+    headline = (
+        "READY FOR IMPORT"
+        if overall_ready
+        else "ATTENTION RECOMMENDED"
+    )
+    headline_width = tkfont.Font(font=ready_font).measure(headline)
+    status.columnconfigure(
+        1,
+        weight=1,
+        minsize=headline_width + SYSTEM_STATUS_HEADLINE_MARGIN,
+    )
     indicator_colours = {
         "green": "#2e7d32",
         "amber": "#b26a00",
@@ -419,11 +580,7 @@ def render_system_status(
 
     ttk.Label(
         status,
-        text=(
-            "READY FOR IMPORT"
-            if overall_ready
-            else "ATTENTION RECOMMENDED"
-        ),
+        text=headline,
         font=ready_font,
         anchor="w",
     ).grid(
@@ -659,7 +816,7 @@ def run_gui() -> None:
     ttk.Button(
         import_frame,
         text="📥  Import Photographs",
-        command=lambda: start_import(root),
+        command=lambda: start_import(root, refresh_system_status),
         style="MPS.Primary.TButton",
     ).grid(
         row=1,

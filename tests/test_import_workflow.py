@@ -44,10 +44,12 @@ def test_import_event_types_are_the_domain_contract():
         "batch_planned",
         "batch_completed",
         "progress",
+        "interaction_requested",
         "reconciliation_started",
         "reconciliation_completed",
         "warning",
         "failed",
+        "stopped",
         "completed",
     }
 
@@ -99,3 +101,9 @@ def test_cli_adapter_preserves_waiting_context_text(
     assert response is ImportResponse.ALL_MEDIA_READY
     assert "same photo session may still need to be inserted" in output
     assert "matching RAW or JPG card" in output
+
+
+def test_cancel_preserve_state_is_a_typed_response():
+    assert ImportResponse.CANCEL_PRESERVE_STATE.value == (
+        "cancel_preserve_state"
+    )

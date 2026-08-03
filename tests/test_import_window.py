@@ -5,6 +5,13 @@ from mps.models.card import CardScanResult
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_progress import ImportProgress
 from mps.models.import_workflow import ImportEvent, ImportEventType
+from mps.models.import_workflow import (
+    ImportRequest,
+    ImportRequestType,
+    ImportResponse,
+    ImportWaitingReason,
+)
+from mps.gui.import_interaction_adapter import PendingImportInteraction
 from mps.services.import_controller import ImportControllerStatus
 
 
@@ -60,10 +67,15 @@ class FakeController:
     def __init__(self):
         self.status = ImportControllerStatus.IDLE
         self.events = []
+        self.worker_alive = False
+        self.cancel_requested = False
 
     def drain_events(self):
         events, self.events = self.events, []
         return events
+
+    def request_cancel(self):
+        self.cancel_requested = True
 
 
 def window():
@@ -72,6 +84,8 @@ def window():
     instance._poll_interval_ms = 75
     instance._after_id = None
     instance._destroyed = False
+    instance._on_terminal = None
+    instance._terminal_notified = False
     instance._window = FakeWindow()
     instance._dialog = FakeDialog()
     instance._variables = {
@@ -170,15 +184,17 @@ def test_close_lifecycle_and_destroyed_polling(monkeypatch):
     instance = window()
     notices = []
     monkeypatch.setattr(
-        "mps.gui.import_window.messagebox.showinfo",
-        lambda *args, **kwargs: notices.append((args, kwargs)),
+        "mps.gui.import_window.messagebox.askyesno",
+        lambda *args, **kwargs: notices.append((args, kwargs)) or False,
     )
     instance._controller.status = ImportControllerStatus.RUNNING
+    instance._controller.worker_alive = True
     instance.close()
     assert notices
     assert instance._dialog.closed is False
 
     instance._controller.status = ImportControllerStatus.COMPLETED
+    instance._controller.worker_alive = False
     instance._schedule_poll()
     instance.close()
     assert instance._dialog.closed is True
@@ -193,3 +209,91 @@ def test_destroyed_window_does_not_reschedule():
     instance._destroyed = True
     instance._poll_events()
     assert instance._window.after_calls == 0
+
+
+def test_interaction_request_is_resolved_on_window_poll_thread(monkeypatch):
+    instance = window()
+    pending = PendingImportInteraction(ImportRequest(
+        ImportRequestType.NEXT_MEDIA_ACTION,
+        ImportWaitingReason.BATCH_COMPLETED,
+    ))
+    monkeypatch.setattr(
+        "mps.gui.import_window.choose_waiting_for_media_action",
+        lambda *args, **kwargs: ImportResponse.RESCAN_MEDIA,
+    )
+    instance.apply_event(ImportEvent(
+        ImportEventType.INTERACTION_REQUESTED,
+        {"interaction": pending},
+    ))
+    assert pending.wait(__import__("threading").Event()) is (
+        ImportResponse.RESCAN_MEDIA
+    )
+
+
+def test_terminal_events_refresh_status_once():
+    instance = window()
+    refreshes = []
+    instance._on_terminal = lambda: refreshes.append(True)
+    instance.apply_event(ImportEvent(ImportEventType.FAILED))
+    instance.apply_event(ImportEvent(ImportEventType.COMPLETED))
+    assert refreshes == [True]
+
+
+def test_stopped_event_is_terminal_and_refreshes_status():
+    instance = window()
+    refreshes = []
+    instance._on_terminal = lambda: refreshes.append(True)
+    instance.apply_event(ImportEvent(
+        ImportEventType.STOPPED,
+        {"code": "cancelled_preserve_state"},
+    ))
+    assert instance._variables["status"].get() == "stopped"
+    assert instance._variables["final_status"].get() == "stopped"
+    assert refreshes == [True]
+
+
+def test_unreconciled_failure_is_shown_as_failure_and_refreshes_status():
+    instance = window()
+    refreshes = []
+    instance._on_terminal = lambda: refreshes.append(True)
+    instance.apply_event(ImportEvent(
+        ImportEventType.FAILED,
+        {"code": "session_not_reconciled"},
+    ))
+    assert instance._variables["status"].get() == "failed"
+    assert instance._variables["final_status"].get() == "failed"
+    assert instance._variables["message"].get() == (
+        "Session could not be reconciled."
+    )
+    assert refreshes == [True]
+
+
+def test_dead_worker_with_stale_running_status_can_close():
+    instance = window()
+    instance._controller.status = ImportControllerStatus.RUNNING
+    instance._controller.worker_alive = False
+    instance.close()
+    assert instance._dialog.closed is True
+
+
+def test_close_active_worker_can_request_safe_stop(monkeypatch):
+    instance = window()
+    instance._controller.status = ImportControllerStatus.WAITING_FOR_MEDIA
+    instance._controller.worker_alive = True
+    monkeypatch.setattr(
+        "mps.gui.import_window.messagebox.askyesno",
+        lambda *args, **kwargs: True,
+    )
+    instance.close()
+    assert instance._dialog.closed is False
+    assert instance._controller.cancel_requested is True
+
+
+def test_waiting_dialog_has_three_explicit_actions():
+    import inspect
+    source = inspect.getsource(__import__(
+        "mps.gui.import_window", fromlist=["WaitingForMediaDialog"]
+    ).WaitingForMediaDialog)
+    assert 'text="Scan Again"' in source
+    assert 'text="All Cards Ready"' in source
+    assert 'text="Stop and Resume Later"' in source
