@@ -43,6 +43,7 @@ def test_import_event_types_are_the_domain_contract():
         "batch_started",
         "batch_planned",
         "batch_completed",
+        "progress",
         "reconciliation_started",
         "reconciliation_completed",
         "warning",

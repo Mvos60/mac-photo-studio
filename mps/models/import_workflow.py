@@ -15,6 +15,7 @@ class ImportEventType(str, Enum):
     BATCH_STARTED = "batch_started"
     BATCH_PLANNED = "batch_planned"
     BATCH_COMPLETED = "batch_completed"
+    PROGRESS = "progress"
     RECONCILIATION_STARTED = "reconciliation_started"
     RECONCILIATION_COMPLETED = "reconciliation_completed"
     WARNING = "warning"
