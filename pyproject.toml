@@ -4,3 +4,10 @@ version = "0.2.1rc2"
 description = "Verified Linux photography ingestion and provenance workflow for digiKam and darktable"
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0"]
+
+[tool.setuptools.package-data]
+mps = [
+  "assets/branding/*.png",
+  "assets/branding/display/*.png",
+  "assets/branding/icons/*/*.png",
+]

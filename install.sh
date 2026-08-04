@@ -11,6 +11,7 @@ BIN_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/$PKG_NAME"
 STATE_DIR="$HOME/.local/state/$PKG_NAME"
 DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_ROOT="$HOME/.local/share/icons/hicolor"
 PHOTOS_ROOT="$HOME/Photos_Master"
 
 echo "Installing $APP_NAME $VERSION..."
@@ -83,6 +84,17 @@ sed "s|@INSTALL_DIR@|$INSTALL_DIR|g" \
   "$INSTALL_DIR/desktop/MacPhotoStudio.desktop" > "$DESKTOP_DIR/MacPhotoStudio.desktop"
 chmod +x "$DESKTOP_DIR/MacPhotoStudio.desktop"
 REPORT+=("OK    desktop launcher installed")
+
+for size in 16 24 32 48 64 128 256; do
+  icon_dir="$ICON_ROOT/${size}x${size}/apps"
+  mkdir -p "$icon_dir"
+  cp "$INSTALL_DIR/mps/assets/branding/icons/${size}x${size}/mac-photo-studio.png" \
+    "$icon_dir/mac-photo-studio.png"
+done
+mkdir -p "$ICON_ROOT/512x512/apps"
+cp "$INSTALL_DIR/mps/assets/branding/mps-camera-512.png" \
+  "$ICON_ROOT/512x512/apps/mac-photo-studio.png"
+REPORT+=("OK    camera application icons installed")
 
 if "$BIN_DIR/mac-photo-studio" --version >/tmp/mps_install_test.out 2>/tmp/mps_install_test.err; then
   REPORT+=("OK    launcher smoke test")

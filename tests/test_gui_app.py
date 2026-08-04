@@ -364,6 +364,19 @@ def test_start_screen_default_height_keeps_bottom_action_visible():
     assert 'root.geometry("1040x880")' in source
     assert "root.minsize(980, 840)" in source
 
+
+def test_main_window_uses_camera_icon_and_retained_header_image():
+    import inspect
+
+    source = inspect.getsource(run_gui)
+    assert "apply_window_icon(root)" in source
+    assert "header_camera = load_camera_image(root, 96)" in source
+    assert "root._mps_header_camera_image = header_camera" in source
+    assert "CAMERA_BACKDROP" not in source
+    assert 'text="Mac Photo Studio"' in source
+    assert 'text="📷  Mac Photo Studio"' not in source
+    assert "command=lambda: show_about(root)" in source
+
 def test_launch_cli_starts_resolved_terminal(monkeypatch):
     calls = []
 

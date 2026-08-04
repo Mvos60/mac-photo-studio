@@ -11,6 +11,8 @@ from typing import Callable
 
 from mps.config import load_settings
 from mps.constants import ACTIVE_IMPORT_SESSION
+from mps.gui.about import show_about
+from mps.gui.branding import apply_window_icon, load_camera_image
 from mps.gui.culling_review import show_culling_review
 from mps.gui.import_destination_selector import (
     choose_import_destination,
@@ -667,6 +669,7 @@ def bind_system_status_refresh(
 def run_gui() -> None:
     root = tk.Tk()
     root.title("Mac Photo Studio")
+    apply_window_icon(root)
     root.geometry("1040x880")
     root.minsize(980, 840)
 
@@ -722,15 +725,28 @@ def run_gui() -> None:
         column=0,
         sticky="ew",
     )
-    header.columnconfigure(0, weight=1)
+    header.columnconfigure(1, weight=1)
 
+    header_camera = load_camera_image(root, 96)
+    root._mps_header_camera_image = header_camera
     ttk.Label(
         header,
-        text="📷  Mac Photo Studio",
-        font=title_font,
+        image=header_camera,
     ).grid(
         row=0,
         column=0,
+        rowspan=2,
+        sticky="w",
+        padx=(0, 16),
+    )
+
+    ttk.Label(
+        header,
+        text="Mac Photo Studio",
+        font=title_font,
+    ).grid(
+        row=0,
+        column=1,
         sticky="w",
     )
 
@@ -740,7 +756,7 @@ def run_gui() -> None:
         font=subtitle_font,
     ).grid(
         row=1,
-        column=0,
+        column=1,
         sticky="w",
         pady=(4, 0),
     )
@@ -751,7 +767,7 @@ def run_gui() -> None:
         font=version_font,
     ).grid(
         row=0,
-        column=1,
+        column=2,
         rowspan=2,
         sticky="e",
         padx=(20, 0),
@@ -990,23 +1006,10 @@ def run_gui() -> None:
         padx=5,
     )
 
-    def show_about() -> None:
-        messagebox.showinfo(
-            "About Mac Photo Studio",
-            (
-                f"Mac Photo Studio {get_version()}\n\n"
-                "A provenance-aware photographer workflow "
-                "for verified imports, safe culling and "
-                "traceable photographic history.\n\n"
-                "Observe first. Decide second. Act last. "
-                "Verify before trust."
-            ),
-        )
-
     ttk.Button(
         utility_tools,
         text="ℹ  About",
-        command=show_about,
+        command=lambda: show_about(root),
         style="MPS.TButton",
     ).grid(
         row=0,

@@ -5,6 +5,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
+from mps.gui.branding import apply_window_icon
+
 
 TITLE_FONT = ("Sans", 20, "bold")
 SECTION_TITLE_FONT = ("Sans", 14, "bold")
@@ -61,6 +63,7 @@ class MpsDialog:
         self.parent = parent
         self.window = tk.Toplevel(parent)
         self.window.title(title)
+        apply_window_icon(self.window)
         self.window.geometry(dimensions.geometry)
         self.window.minsize(
             dimensions.minimum_width,
