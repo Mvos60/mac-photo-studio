@@ -67,6 +67,41 @@ def test_import_engine_copies_all_files(tmp_path):
     assert result.success
 
 
+def test_copy_results_are_reported_once_after_checksum(tmp_path):
+    decision = _decision(tmp_path)
+    results = []
+
+    result = run_import(
+        decision,
+        dry_run=False,
+        copy_result_callback=results.append,
+    )
+
+    assert result.success
+    assert [item.success for item in results] == [True, True]
+    assert [item.checksum is not None for item in results] == [True, True]
+    assert [item.source for item in results] == [
+        operation.source for operation in decision.copy_operations
+    ]
+
+
+def test_failed_copy_reports_failure_and_no_verified_result(tmp_path):
+    decision = _decision(tmp_path)
+    decision.copy_operations[1].destination.parent.mkdir(parents=True)
+    decision.copy_operations[1].destination.write_bytes(b"existing")
+    results = []
+
+    result = run_import(
+        decision,
+        dry_run=False,
+        copy_result_callback=results.append,
+    )
+
+    assert result.failed == 1
+    assert [item.success for item in results] == [True, False]
+    assert results[1].checksum is None
+
+
 def test_import_engine_reports_progress(tmp_path):
     decision = _decision(tmp_path)
     seen: list[tuple[int, int, str]] = []

@@ -14,6 +14,7 @@ from mps.models.import_media_session import (
 )
 from mps.models.import_media_batch_plan import ImportMediaBatchPlan
 from mps.models.import_progress import ImportProgress
+from mps.models.import_file_result import ImportFileResult
 from mps.models.import_workflow import (
     ImportEvent,
     ImportEventType,
@@ -333,6 +334,12 @@ def _run_import_media_session(
                 },
             ))
 
+        def publish_file_result(file_result: ImportFileResult) -> None:
+            emit(ImportEvent(
+                ImportEventType.FILE_RESULT,
+                {"result": file_result},
+            ))
+
         result = process_import_media_batch(
             new_media,
             active_session,
@@ -344,6 +351,7 @@ def _run_import_media_session(
             destination_selection=destination_selection,
             progress_callback=progress_callback,
             plan_callback=publish_plan,
+            file_result_callback=publish_file_result,
         )
 
         copied += result.copied

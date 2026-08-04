@@ -6,6 +6,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Protocol
 
+from mps.models.import_file_result import ImportFileResult
+
 
 class ImportEventType(str, Enum):
     SESSION_STARTED = "session_started"
@@ -15,6 +17,7 @@ class ImportEventType(str, Enum):
     BATCH_STARTED = "batch_started"
     BATCH_PLANNED = "batch_planned"
     BATCH_COMPLETED = "batch_completed"
+    FILE_RESULT = "file_result"
     PROGRESS = "progress"
     INTERACTION_REQUESTED = "interaction_requested"
     RECONCILIATION_STARTED = "reconciliation_started"
@@ -33,10 +36,18 @@ class ImportEvent:
     payload: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        payload = dict(self.payload)
+        if self.type is ImportEventType.FILE_RESULT and (
+            set(payload) != {"result"}
+            or not isinstance(payload["result"], ImportFileResult)
+        ):
+            raise TypeError(
+                "file_result event requires exactly one ImportFileResult"
+            )
         object.__setattr__(
             self,
             "payload",
-            MappingProxyType(dict(self.payload)),
+            MappingProxyType(payload),
         )
 
 

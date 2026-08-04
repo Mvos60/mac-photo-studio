@@ -4,10 +4,19 @@ from typing import Literal
 import tkinter as tk
 from tkinter import ttk
 
-from mps.gui.dialogs import BODY_FONT, MpsDialog
+from mps.gui.dialogs import (
+    BODY_FONT,
+    MpsDialog,
+    configure_three_action_footer,
+)
 
 
 ImportSessionAction = Literal["resume", "start-new", "cancel"]
+ACTION_DIALOG_GEOMETRY = "760x480"
+ACTION_DIALOG_MINIMUM = (720, 440)
+ACTION_DIALOG_CONTENT_MIN_WIDTH = 650
+ACTION_DIALOG_WRAP_LENGTH = 650
+ACTION_DIALOG_BUTTON_MIN_WIDTH = 180
 
 
 class ImportSessionActionSelector:
@@ -19,12 +28,24 @@ class ImportSessionActionSelector:
             size="small",
             resizable=False,
         )
+        self._dialog.window.geometry(ACTION_DIALOG_GEOMETRY)
+        self._dialog.window.minsize(*ACTION_DIALOG_MINIMUM)
+        self._dialog.content.columnconfigure(
+            0,
+            weight=1,
+            minsize=ACTION_DIALOG_CONTENT_MIN_WIDTH,
+        )
+        configure_three_action_footer(
+            self._dialog,
+            minimum_button_width=ACTION_DIALOG_BUTTON_MIN_WIDTH,
+        )
         self._dialog.add_header(
             "An active import session is available",
             (
                 "Resume it, start a new photo session, "
                 "or leave it unchanged."
             ),
+            wraplength=ACTION_DIALOG_WRAP_LENGTH,
         )
 
         ttk.Label(
@@ -37,6 +58,7 @@ class ImportSessionActionSelector:
             ),
             font=BODY_FONT,
             justify="left",
+            wraplength=ACTION_DIALOG_WRAP_LENGTH,
         ).grid(row=0, column=0, sticky="nw")
 
         self._dialog.add_footer_button(

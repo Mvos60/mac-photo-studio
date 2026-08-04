@@ -7,6 +7,10 @@ from mps.models.import_destination_selection import (
 )
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_media_session import ImportMediaSession
+from mps.models.import_file_result import (
+    ImportFileMediaType,
+    ImportFileResultStatus,
+)
 from mps.services.import_media_batch_processor import (
     process_import_media_batch,
 )
@@ -95,6 +99,78 @@ def test_successful_raw_batch_is_registered(tmp_path: Path):
 
     assert (destination / "DSC0001.ARW").exists()
     assert (destination / "import_manifest.json").exists()
+
+
+def test_batch_reports_verified_file_once(tmp_path: Path):
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    results = []
+
+    result = process_import_media_batch(
+        ImportMediaSelection(sources=[_card(root, raw=1)]),
+        ImportMediaSession(),
+        _settings(tmp_path),
+        year=2026,
+        project="Adriatic",
+        day="03_Slovenia",
+        session_id="MPS-SESSION-RESULT",
+        file_result_callback=results.append,
+    )
+
+    assert result.success
+    assert len(results) == 1
+    assert results[0].status is ImportFileResultStatus.VERIFIED
+    assert results[0].media_type is ImportFileMediaType.RAW
+    assert results[0].destination is not None
+
+
+def test_batch_reports_failed_copy_without_verified_result(tmp_path: Path):
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    destination = (
+        tmp_path / "Photos_Master" / "2026" / "Adriatic" / "03_Slovenia"
+    )
+    destination.mkdir(parents=True)
+    (destination / "DSC0001.ARW").write_bytes(b"existing")
+    results = []
+
+    batch = process_import_media_batch(
+        ImportMediaSelection(sources=[_card(root, raw=1)]),
+        ImportMediaSession(), _settings(tmp_path),
+        year=2026, project="Adriatic", day="03_Slovenia",
+        session_id="MPS-SESSION-FAILED",
+        file_result_callback=results.append,
+    )
+
+    assert not batch.success
+    assert len(results) == 1
+    assert results[0].status is ImportFileResultStatus.FAILED
+    assert results[0].reason_code == "copy_failed"
+    assert "refusing to overwrite" in results[0].detail
+
+
+def test_duplicate_batch_reports_skip_without_copy(tmp_path: Path):
+    root = tmp_path / "card"
+    settings = _settings(tmp_path)
+    selection = ImportMediaSelection(sources=[_card(root, jpeg=1)])
+    _write_photo(root, "DSC0001.JPG", b"jpeg-photo")
+    first = process_import_media_batch(
+        selection, ImportMediaSession(), settings,
+        year=2026, project="First", day="Session",
+        session_id="MPS-FIRST",
+    )
+    results = []
+    second = process_import_media_batch(
+        selection, ImportMediaSession(), settings,
+        year=2026, project="Second", day="Session",
+        session_id="MPS-SECOND", file_result_callback=results.append,
+    )
+
+    assert first.success
+    assert second.nothing_to_import
+    assert len(results) == 1
+    assert results[0].status is ImportFileResultStatus.SKIPPED
+    assert results[0].reason_code == "already_imported"
 
 
 def test_sequential_cards_share_one_import_session(tmp_path: Path):

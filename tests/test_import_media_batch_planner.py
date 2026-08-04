@@ -8,6 +8,10 @@ from mps.models.import_destination_selection import (
     ImportDestinationSelection,
 )
 from mps.models.import_media_selection import ImportMediaSelection
+from mps.models.import_file_result import (
+    ImportFileMediaType,
+    ImportFileResultStatus,
+)
 from mps.services.import_media_batch_planner import (
     create_media_batch_plan,
 )
@@ -323,6 +327,31 @@ def test_previously_imported_file_is_not_planned(
     assert plan.estimated_size_bytes == 0
     assert plan.decision.copy_operations == []
     assert plan.decision.warnings == []
+
+
+def test_previously_imported_file_reports_one_typed_skip(tmp_path: Path):
+    photos_root = tmp_path / "Photos_Master"
+    root = tmp_path / "card"
+    _write_imported_hash(photos_root, b"already-imported")
+    source = _write_photo(root, "DSC0001.ARW", b"already-imported")
+    results = []
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(sources=[_card(root, raw=1)]),
+        _settings(tmp_path),
+        year=2026,
+        project="NewProject",
+        day="NewSession",
+        file_result_callback=results.append,
+    )
+
+    assert plan.total_files == 0
+    assert len(results) == 1
+    assert results[0].source == source
+    assert results[0].destination is None
+    assert results[0].media_type is ImportFileMediaType.RAW
+    assert results[0].status is ImportFileResultStatus.SKIPPED
+    assert results[0].reason_code == "already_imported"
 
 
 def test_only_new_files_are_planned_when_card_is_reused(

@@ -8,6 +8,11 @@ from mps.models.import_decision import CopyOperation, ImportDecision
 from mps.models.import_destination_selection import (
     ImportDestinationSelection,
 )
+from mps.models.import_file_result import (
+    ImportFileMediaType,
+    ImportFileResult,
+    ImportFileResultStatus,
+)
 from mps.models.import_media_batch_plan import ImportMediaBatchPlan
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_progress import ImportProgress
@@ -105,6 +110,7 @@ def _new_source_files(
         [ImportProgress],
         None,
     ] | None = None,
+    skipped_callback: Callable[[Path], None] | None = None,
 ) -> list[Path]:
     registry = load_imported_photo_registry(
         photos_root
@@ -134,6 +140,8 @@ def _new_source_files(
                 source_hash
             ):
                 new_files.append(source)
+            elif skipped_callback is not None:
+                skipped_callback(source)
 
         _report_checking_progress(
             progress_callback,
@@ -179,6 +187,7 @@ def create_media_batch_plan(
         [ImportProgress],
         None,
     ] | None = None,
+    file_result_callback: Callable[[ImportFileResult], None] | None = None,
 ) -> ImportMediaBatchPlan:
     photos_root = _photos_root(settings)
 
@@ -195,10 +204,33 @@ def create_media_batch_plan(
         settings,
     )
 
+    raw_extensions = _extensions(settings, "media.raw_extensions")
+    jpeg_extensions = _extensions(settings, "media.jpeg_extensions")
+
+    def report_skipped(source: Path) -> None:
+        if file_result_callback is None:
+            return
+        extension = source.suffix.lower().lstrip(".")
+        media_type = ImportFileMediaType.OTHER
+        if extension in raw_extensions:
+            media_type = ImportFileMediaType.RAW
+        elif extension in jpeg_extensions:
+            media_type = ImportFileMediaType.JPEG
+        file_result_callback(ImportFileResult(
+            source=source,
+            destination=None,
+            media_type=media_type,
+            status=ImportFileResultStatus.SKIPPED,
+            reason_code="already_imported",
+        ))
+
     source_files = _new_source_files(
         discovered_files,
         photos_root,
         progress_callback=progress_callback,
+        skipped_callback=(
+            report_skipped if file_result_callback is not None else None
+        ),
     )
 
     copy_operations = [

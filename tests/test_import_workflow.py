@@ -10,6 +10,11 @@ from mps.models.import_workflow import (
     ImportResponse,
     ImportWaitingReason,
 )
+from mps.models.import_file_result import (
+    ImportFileMediaType,
+    ImportFileResult,
+    ImportFileResultStatus,
+)
 from mps.services.import_media_cli_adapter import (
     CliImportInteractionAdapter,
 )
@@ -43,6 +48,7 @@ def test_import_event_types_are_the_domain_contract():
         "batch_started",
         "batch_planned",
         "batch_completed",
+        "file_result",
         "progress",
         "interaction_requested",
         "reconciliation_started",
@@ -52,6 +58,24 @@ def test_import_event_types_are_the_domain_contract():
         "stopped",
         "completed",
     }
+
+
+def test_file_result_event_requires_exact_typed_payload(tmp_path):
+    result = ImportFileResult(
+        source=tmp_path / "A.ARW",
+        destination=tmp_path / "B.ARW",
+        media_type=ImportFileMediaType.RAW,
+        status=ImportFileResultStatus.VERIFIED,
+    )
+    event = ImportEvent(ImportEventType.FILE_RESULT, {"result": result})
+    assert event.payload["result"] is result
+    with pytest.raises(TypeError):
+        ImportEvent(ImportEventType.FILE_RESULT, {"result": "invalid"})
+    with pytest.raises(TypeError):
+        ImportEvent(
+            ImportEventType.FILE_RESULT,
+            {"result": result, "extra": True},
+        )
 
 
 @pytest.mark.parametrize(

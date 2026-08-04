@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font as tkfont, ttk
 from typing import Callable
 
 from mps.gui.branding import apply_window_icon
@@ -14,6 +14,8 @@ BODY_FONT = ("Sans", 13)
 BODY_BOLD_FONT = ("Sans", 13, "bold")
 BODY_ITALIC_FONT = ("Sans", 13, "italic")
 DIALOG_TITLE_FONT = ("Sans", 18, "bold")
+ACTION_BUTTON_WIDTH_ALLOWANCE = 36
+ACTION_FOOTER_WIDTH_ALLOWANCE = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,3 +203,42 @@ class MpsDialog:
     def close(self) -> None:
         if self.window.winfo_exists():
             self.window.destroy()
+
+
+def configure_three_action_footer(
+    dialog: MpsDialog,
+    *,
+    minimum_button_width: int = 170,
+) -> None:
+    """Reserve three evenly distributed footer columns for dialog actions."""
+
+    dialog.footer.columnconfigure(0, weight=0)
+    for column in (1, 2, 3):
+        dialog.footer.columnconfigure(
+            column,
+            weight=1,
+            minsize=minimum_button_width,
+            uniform="dialog-actions",
+        )
+
+
+def measure_action_button_column_width(
+    window: tk.Misc,
+    labels: tuple[str, ...],
+) -> int:
+    """Measure the longest action label including ttk button chrome."""
+
+    if not labels:
+        raise ValueError("At least one action label is required")
+    font = tkfont.Font(root=window, font=BODY_FONT)
+    return max(font.measure(label) for label in labels) + (
+        ACTION_BUTTON_WIDTH_ALLOWANCE
+    )
+
+
+def minimum_three_action_dialog_width(button_column_width: int) -> int:
+    """Return client width for three columns, gaps and footer padding."""
+
+    if button_column_width <= 0:
+        raise ValueError("Button column width must be positive")
+    return button_column_width * 3 + ACTION_FOOTER_WIDTH_ALLOWANCE

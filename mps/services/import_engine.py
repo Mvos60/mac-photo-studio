@@ -239,6 +239,7 @@ def run_import(
     project: str = "",
     day_session: str = "",
     session_id: str | None = None,
+    copy_result_callback: Callable[[CopyResult], None] | None = None,
 ) -> ImportResult:
     """Run an import decision.
 
@@ -293,6 +294,8 @@ def run_import(
             operation.destination,
         )
         copy_results.append(result)
+        if copy_result_callback is not None:
+            copy_result_callback(result)
 
         if progress_callback is not None:
             progress_callback(

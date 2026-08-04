@@ -1487,6 +1487,7 @@ def test_runner_emits_success_events_in_reliable_order(
         ImportEventType.MEDIA_DISCOVERED,
         ImportEventType.BATCH_STARTED,
         ImportEventType.BATCH_PLANNED,
+        ImportEventType.FILE_RESULT,
         ImportEventType.BATCH_COMPLETED,
         ImportEventType.WAITING_FOR_MEDIA,
         ImportEventType.RECONCILIATION_STARTED,
@@ -1495,8 +1496,38 @@ def test_runner_emits_success_events_in_reliable_order(
     ]
     assert len(adapter.requests) == 1
     assert events[2].payload["new_source_count"] == 1
-    assert events[5].payload["copied"] == 1
-    assert events[8].payload["reconciliation"].reconciled
+    assert events[6].payload["copied"] == 1
+    assert events[9].payload["reconciliation"].reconciled
+
+
+def test_runner_forwards_one_typed_file_result(monkeypatch, tmp_path: Path):
+    from mps.models.import_file_result import ImportFileResultStatus
+
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"raw-data")
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: ImportMediaSelection(sources=[_card(root, raw=1)]),
+    )
+    events = []
+
+    run_import_media_session(
+        _settings(tmp_path), year=2026, project="Events", day="Files",
+        event_sink=events.append,
+        interaction_adapter=_FinishAfterBatchAdapter(),
+    )
+
+    file_events = [
+        event for event in events if event.type is ImportEventType.FILE_RESULT
+    ]
+    assert len(file_events) == 1
+    assert file_events[0].payload["result"].status is (
+        ImportFileResultStatus.VERIFIED
+    )
+    assert events.index(file_events[0]) < next(
+        index for index, event in enumerate(events)
+        if event.type is ImportEventType.BATCH_COMPLETED
+    )
 
 
 def test_batch_planned_is_emitted_before_copy_progress(
