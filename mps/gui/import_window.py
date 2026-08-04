@@ -32,6 +32,10 @@ IMPORT_WINDOW_GEOMETRY = "1180x900"
 IMPORT_WINDOW_MINIMUM = (980, 820)
 IMPORT_WINDOW_VERTICAL_RESERVE = 180
 SUMMARY_ROW_MIN_HEIGHT = 145
+SUMMARY_LEFT_LABEL_MIN_WIDTH = 160
+SUMMARY_RIGHT_LABEL_MIN_WIDTH = 110
+SUMMARY_VALUE_MIN_WIDTH = 300
+SUMMARY_VALUE_WRAP_LENGTH = SUMMARY_VALUE_MIN_WIDTH - 20
 RESULTS_ROW_MIN_HEIGHT = 225
 RESULTS_TREE_MIN_HEIGHT = 185
 RESULTS_TREE_VISIBLE_ROWS = 7
@@ -320,10 +324,30 @@ class ImportWindow:
             minsize=RESULT_DETAILS_MIN_HEIGHT,
         )
 
-        summary = ttk.Frame(content)
-        summary.grid(row=0, column=0, sticky="ew")
-        summary.columnconfigure(1, weight=1)
-        summary.columnconfigure(3, weight=1)
+        self._summary_frame = ttk.Frame(content)
+        self._summary_frame.grid(row=0, column=0, sticky="ew")
+        self._summary_frame.columnconfigure(
+            0,
+            weight=0,
+            minsize=SUMMARY_LEFT_LABEL_MIN_WIDTH,
+        )
+        self._summary_frame.columnconfigure(
+            1,
+            weight=1,
+            minsize=SUMMARY_VALUE_MIN_WIDTH,
+            uniform="summary-values",
+        )
+        self._summary_frame.columnconfigure(
+            2,
+            weight=0,
+            minsize=SUMMARY_RIGHT_LABEL_MIN_WIDTH,
+        )
+        self._summary_frame.columnconfigure(
+            3,
+            weight=1,
+            minsize=SUMMARY_VALUE_MIN_WIDTH,
+            uniform="summary-values",
+        )
         fields = (
             ("Status", "status", "Destination", "destination"),
             ("Session ID", "session_id", "Current file", "current_file"),
@@ -331,12 +355,19 @@ class ImportWindow:
             ("Current source", "source_card", "Progress", "current_total"),
             ("RAW / JPG / pairs", "media_counts", "", "percentage"),
         )
+        self._summary_labels: dict[str, ttk.Label] = {}
+        self._summary_values: dict[str, ttk.Label] = {}
         for row, field_row in enumerate(fields):
             for pair in range(2):
                 label, key = field_row[pair * 2:pair * 2 + 2]
                 label_column = pair * 2
                 if label:
-                    ttk.Label(summary, text=label, font=BODY_FONT).grid(
+                    self._summary_labels[key] = ttk.Label(
+                        self._summary_frame,
+                        text=label,
+                        font=BODY_FONT,
+                    )
+                    self._summary_labels[key].grid(
                         row=row,
                         column=label_column,
                         sticky="nw",
@@ -348,21 +379,23 @@ class ImportWindow:
                     if key != "media_counts"
                     else self._media_counts_variable()
                 )
-                ttk.Label(
-                    summary,
+                self._summary_values[key] = ttk.Label(
+                    self._summary_frame,
                     textvariable=variable,
                     font=BODY_FONT,
-                    wraplength=410,
-                ).grid(
+                    wraplength=SUMMARY_VALUE_WRAP_LENGTH,
+                    justify="left",
+                )
+                self._summary_values[key].grid(
                     row=row,
                     column=label_column + 1,
-                    sticky="ew",
+                    sticky="nw",
                     padx=(0, 18 if pair == 0 else 0),
                     pady=2,
                 )
 
         self._progressbar = ttk.Progressbar(
-            summary,
+            self._summary_frame,
             maximum=100,
             value=0,
             mode="determinate",

@@ -14,6 +14,10 @@ from mps.gui.import_window import (
     RESULTS_TREE_MIN_HEIGHT,
     RESULTS_TREE_VISIBLE_ROWS,
     SUMMARY_ROW_MIN_HEIGHT,
+    SUMMARY_LEFT_LABEL_MIN_WIDTH,
+    SUMMARY_RIGHT_LABEL_MIN_WIDTH,
+    SUMMARY_VALUE_MIN_WIDTH,
+    SUMMARY_VALUE_WRAP_LENGTH,
     WAITING_DIALOG_ACTION_LABELS,
     WAITING_DIALOG_CONTENT_MIN_WIDTH,
     WAITING_DIALOG_MINIMUM,
@@ -303,6 +307,64 @@ def test_totals_details_and_messages_are_really_gridded(monkeypatch):
         0: {"weight": 0, "minsize": RESULT_MESSAGE_LINE_MIN_HEIGHT},
         1: {"weight": 0, "minsize": RESULT_MESSAGE_LINE_MIN_HEIGHT},
     }
+
+
+def test_summary_labels_and_values_share_top_alignment(monkeypatch):
+    instance = window()
+    FakeLayoutWidget.created = []
+    instance._dialog.content = FakeLayoutWidget()
+    instance._dialog.footer = FakeLayoutWidget()
+    monkeypatch.setattr("mps.gui.import_window.tk.StringVar", FakeVariable)
+    for widget_name in (
+        "Frame", "LabelFrame", "Label", "Progressbar", "Treeview", "Scrollbar"
+    ):
+        monkeypatch.setattr(
+            f"mps.gui.import_window.ttk.{widget_name}",
+            FakeLayoutWidget,
+        )
+
+    instance._build_content()
+
+    for key in (
+        "status",
+        "session_id",
+        "action",
+        "source_card",
+        "media_counts",
+        "destination",
+        "current_file",
+        "phase",
+        "current_total",
+    ):
+        label = instance._summary_labels[key]
+        value = instance._summary_values[key]
+        assert label.grid_options["sticky"] == "nw"
+        assert value.grid_options["sticky"] == "nw"
+        assert label.grid_options["pady"] == value.grid_options["pady"] == 2
+        assert value.kwargs["justify"] == "left"
+        assert value.kwargs["wraplength"] == SUMMARY_VALUE_WRAP_LENGTH
+
+    assert instance._summary_frame.column_options == {
+        0: {"weight": 0, "minsize": SUMMARY_LEFT_LABEL_MIN_WIDTH},
+        1: {
+            "weight": 1,
+            "minsize": SUMMARY_VALUE_MIN_WIDTH,
+            "uniform": "summary-values",
+        },
+        2: {"weight": 0, "minsize": SUMMARY_RIGHT_LABEL_MIN_WIDTH},
+        3: {
+            "weight": 1,
+            "minsize": SUMMARY_VALUE_MIN_WIDTH,
+            "uniform": "summary-values",
+        },
+    }
+    assert SUMMARY_VALUE_WRAP_LENGTH < SUMMARY_VALUE_MIN_WIDTH
+    assert instance._summary_values["session_id"].kwargs["wraplength"] == (
+        SUMMARY_VALUE_WRAP_LENGTH
+    )
+    assert instance._summary_values["destination"].kwargs["wraplength"] == (
+        SUMMARY_VALUE_WRAP_LENGTH
+    )
 
 
 def test_dialog_footer_uses_a_separate_root_row_from_content():
