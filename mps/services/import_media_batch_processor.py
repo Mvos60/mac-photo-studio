@@ -63,6 +63,8 @@ def process_import_media_batch(
     progress_callback: Callable[[ImportProgress], None] | None = None,
     plan_callback: Callable[[ImportMediaBatchPlan], None] | None = None,
     file_result_callback: Callable[[ImportFileResult], None] | None = None,
+    source_files: tuple[Path, ...] | list[Path] | None = None,
+    completed_selection: ImportMediaSelection | None = None,
 ) -> ImportMediaBatchResult:
     """Copy and verify currently mounted media before registering it."""
 
@@ -76,6 +78,7 @@ def process_import_media_batch(
         destination_selection=destination_selection,
         progress_callback=progress_callback,
         file_result_callback=pending_skipped.append,
+        source_files=source_files,
     )
     if plan_callback is not None:
         plan_callback(plan)
@@ -189,7 +192,11 @@ def process_import_media_batch(
     if verification.safe_to_release:
         add_media_to_session(
             session,
-            selection,
+            (
+                completed_selection
+                if completed_selection is not None
+                else selection
+            ),
         )
 
         session.add_processed_source_files(

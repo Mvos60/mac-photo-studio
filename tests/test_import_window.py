@@ -34,6 +34,10 @@ from mps.models.import_file_result import (
 )
 from mps.models.card import CardScanResult
 from mps.models.import_media_selection import ImportMediaSelection
+from mps.models.import_photo_selection import (
+    ImportPhotoCandidate,
+    ImportPhotoSelectionResponse,
+)
 from mps.models.import_progress import ImportProgress
 from mps.models.import_workflow import ImportEvent, ImportEventType
 from mps.models.import_workflow import (
@@ -554,6 +558,74 @@ def test_interaction_request_is_resolved_on_window_poll_thread(monkeypatch):
     assert pending.wait(__import__("threading").Event()) is (
         ImportResponse.RESCAN_MEDIA
     )
+
+
+def test_photo_selection_request_is_resolved_on_window_poll_thread(monkeypatch):
+    instance = window()
+    candidates = (
+        ImportPhotoCandidate(
+            "dsc0001", "DSC0001", raw_paths=(Path("DSC0001.ARW"),)
+        ),
+    )
+    pending = PendingImportInteraction(ImportRequest(
+        ImportRequestType.SELECT_PHOTOS,
+        candidates=candidates,
+    ))
+    expected = ImportPhotoSelectionResponse(frozenset({"dsc0001"}))
+    monkeypatch.setattr(
+        "mps.gui.import_window.choose_import_photos",
+        lambda *args, **kwargs: expected,
+    )
+
+    instance.apply_event(ImportEvent(
+        ImportEventType.INTERACTION_REQUESTED,
+        {"interaction": pending},
+    ))
+
+    assert pending.wait(__import__("threading").Event()) is expected
+
+
+def test_photo_selection_counts_only_cross_source_raw_jpeg_pairs(monkeypatch):
+    instance = window()
+    candidates = tuple(
+        ImportPhotoCandidate(
+            f"pair-{index}",
+            f"PAIR{index}",
+            raw_paths=(Path(f"raw-card/PAIR{index}.ARW"),),
+            jpeg_paths=(Path(f"jpg-card/PAIR{index}.JPG"),),
+        )
+        for index in range(4)
+    ) + (
+        ImportPhotoCandidate(
+            "raw-only",
+            "RAWONLY",
+            raw_paths=(Path("raw-card/RAWONLY.ARW"),),
+        ),
+        ImportPhotoCandidate(
+            "jpg-only",
+            "JPGONLY",
+            jpeg_paths=(Path("jpg-card/JPGONLY.JPG"),),
+        ),
+    )
+    pending = PendingImportInteraction(ImportRequest(
+        ImportRequestType.SELECT_PHOTOS,
+        candidates=candidates,
+    ))
+    expected = ImportPhotoSelectionResponse(frozenset(
+        candidate.key for candidate in candidates
+    ))
+    monkeypatch.setattr(
+        "mps.gui.import_window.choose_import_photos",
+        lambda *args, **kwargs: expected,
+    )
+
+    instance.apply_event(ImportEvent(
+        ImportEventType.INTERACTION_REQUESTED,
+        {"interaction": pending},
+    ))
+
+    assert instance._variables["pairs"].get() == "4"
+    assert pending.wait(__import__("threading").Event()) is expected
 
 
 def test_terminal_events_refresh_status_once():

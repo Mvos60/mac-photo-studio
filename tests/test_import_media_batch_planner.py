@@ -183,6 +183,47 @@ def test_plan_mixed_raw_and_jpeg_card(tmp_path: Path):
     }
 
 
+def test_explicit_source_subset_plans_only_selected_files(tmp_path: Path):
+    root = tmp_path / "mixed"
+    selected_raw = _write_photo(root, "DSC0001.ARW", b"raw-one")
+    selected_jpg = _write_photo(root, "DSC0001.JPG", b"jpg-one")
+    _write_photo(root, "DSC0002.ARW", b"raw-two")
+    _write_photo(root, "DSC0002.JPG", b"jpg-two")
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(sources=[_card(root, raw=2, jpeg=2)]),
+        _settings(tmp_path),
+        year=2026,
+        project="Adriatic",
+        day="03_Slovenia",
+        source_files=(selected_raw, selected_jpg),
+    )
+
+    assert {operation.source for operation in plan.decision.copy_operations} == {
+        selected_raw, selected_jpg,
+    }
+
+
+def test_explicit_source_subset_still_applies_duplicate_registry(tmp_path: Path):
+    root = tmp_path / "mixed"
+    duplicate = _write_photo(root, "DSC0001.ARW", b"already-imported")
+    selected = _write_photo(root, "DSC0002.ARW", b"new")
+    _write_imported_hash(tmp_path / "Photos_Master", b"already-imported")
+
+    plan = create_media_batch_plan(
+        ImportMediaSelection(sources=[_card(root, raw=2)]),
+        _settings(tmp_path),
+        year=2026,
+        project="Adriatic",
+        day="03_Slovenia",
+        source_files=(duplicate, selected),
+    )
+
+    assert [operation.source for operation in plan.decision.copy_operations] == [
+        selected,
+    ]
+
+
 def test_plan_multiple_simultaneous_cards(tmp_path: Path):
     raw_root = tmp_path / "raw"
     jpeg_root = tmp_path / "jpeg"
@@ -686,3 +727,23 @@ def test_calendar_destination_respects_alternate_photos_root(
         / "Adriatic"
     )
     assert alternate_root.exists() is False
+
+
+def test_explicit_source_subset_rejects_path_outside_discovered_media(
+    tmp_path: Path,
+):
+    import pytest
+
+    root = tmp_path / "card"
+    _write_photo(root, "DSC0001.ARW", b"card")
+    outside = _write_photo(tmp_path / "outside", "OTHER.ARW", b"outside")
+
+    with pytest.raises(ValueError, match="discovered media"):
+        create_media_batch_plan(
+            ImportMediaSelection(sources=[_card(root, raw=1)]),
+            _settings(tmp_path),
+            year=2026,
+            project="Adriatic",
+            day="03_Slovenia",
+            source_files=(outside,),
+        )

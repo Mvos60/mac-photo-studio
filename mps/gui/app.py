@@ -393,6 +393,7 @@ def _start_native_import(
             event_sink=event_sink,
             interaction_adapter=interaction,
             wait_for_initial_media=True,
+            enable_photo_selection=True,
         )
 
     _import_controller.start(runner)

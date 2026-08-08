@@ -66,6 +66,9 @@ def _source_files(
     return files
 
 
+source_files_for_selection = _source_files
+
+
 def _photos_root(
     settings: Settings,
 ) -> Path:
@@ -75,6 +78,9 @@ def _photos_root(
             "~/Photos_Master",
         )
     ).expanduser()
+
+
+configured_photos_root = _photos_root
 
 
 def _report_checking_progress(
@@ -154,6 +160,9 @@ def _new_source_files(
     return new_files
 
 
+filter_new_source_files = _new_source_files
+
+
 def media_import_destination(
     settings: Settings,
     *,
@@ -188,6 +197,7 @@ def create_media_batch_plan(
         None,
     ] | None = None,
     file_result_callback: Callable[[ImportFileResult], None] | None = None,
+    source_files: tuple[Path, ...] | list[Path] | None = None,
 ) -> ImportMediaBatchPlan:
     photos_root = _photos_root(settings)
 
@@ -199,10 +209,19 @@ def create_media_batch_plan(
         destination_selection=destination_selection,
     )
 
-    discovered_files = _source_files(
-        selection,
-        settings,
-    )
+    available_files = _source_files(selection, settings)
+    if source_files is None:
+        discovered_files = available_files
+    else:
+        discovered_files = list(source_files)
+        available = set(available_files)
+        unavailable = [
+            path for path in discovered_files if path not in available
+        ]
+        if unavailable:
+            raise ValueError(
+                "Explicit source files must belong to the discovered media"
+            )
 
     raw_extensions = _extensions(settings, "media.raw_extensions")
     jpeg_extensions = _extensions(settings, "media.jpeg_extensions")

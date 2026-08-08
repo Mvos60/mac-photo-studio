@@ -9,14 +9,17 @@ from mps.models.import_destination_selection import (
     ImportDestinationSelection,
 )
 from mps.models.import_media_selection import ImportMediaSelection
+from mps.models.import_photo_selection import ImportPhotoSelectionResponse
 from mps.models.import_media_session import (
     ImportMediaSession,
     ImportMediaSessionDestination,
 )
 from mps.models.import_workflow import (
     ImportEventType,
+    ImportRequestType,
     ImportResponse,
 )
+from mps.services.import_media_session_store import load_import_media_session
 from mps.services.import_media_wizard_runner import (
     run_import_media_session,
 )
@@ -2031,3 +2034,279 @@ def test_protected_start_new_does_not_recover_into_old_state(
     assert state_path.read_bytes() == original
     assert [event.type for event in events].count(ImportEventType.FAILED) == 1
     assert ImportEventType.STOPPED not in {event.type for event in events}
+
+
+class _PhotoSubsetAdapter:
+    def __init__(self, selected_keys, next_responses):
+        self._selected_keys = iter(selected_keys)
+        self._next_responses = iter(next_responses)
+        self.photo_requests = []
+
+    def request(self, request):
+        if request.type is ImportRequestType.SELECT_PHOTOS:
+            self.photo_requests.append(request)
+            selected = next(self._selected_keys)
+            if isinstance(selected, ImportResponse):
+                return selected
+            return ImportPhotoSelectionResponse(frozenset(selected))
+        return next(self._next_responses)
+
+
+def test_gui_subset_registers_only_selected_file_and_does_not_reprompt(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    first = root / "DCIM" / "100MSDCF" / "A.ARW"
+    _write_photo(root, "A.ARW", b"a")
+    _write_photo(root, "B.ARW", b"b")
+    _write_photo(root, "C.ARW", b"c")
+    selection = ImportMediaSelection(sources=[_card(root, raw=3)])
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: selection,
+    )
+    adapter = _PhotoSubsetAdapter(
+        selected_keys=[{"a"}],
+        next_responses=[
+            ImportResponse.RESCAN_MEDIA,
+            ImportResponse.ALL_MEDIA_READY,
+        ],
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Subset",
+        day="One",
+        interaction_adapter=adapter,
+        enable_photo_selection=True,
+    )
+
+    assert result.success
+    assert result.copied == 1
+    assert result.session.processed_source_files == [first]
+    assert result.session.source_fingerprints == set()
+    assert len(adapter.photo_requests) == 1
+
+
+def test_gui_subset_resume_offers_only_remaining_photos(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    first = root / "DCIM" / "100MSDCF" / "A.ARW"
+    _write_photo(root, "A.ARW", b"a")
+    _write_photo(root, "B.ARW", b"b")
+    _write_photo(root, "C.ARW", b"c")
+    selection = ImportMediaSelection(sources=[_card(root, raw=3)])
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: selection,
+    )
+    state_path = tmp_path / "active.json"
+    first_adapter = _PhotoSubsetAdapter(
+        selected_keys=[{"a"}],
+        next_responses=[ImportResponse.CANCEL_PRESERVE_STATE],
+    )
+
+    first_result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Subset",
+        day="Resume",
+        session_state_path=state_path,
+        interaction_adapter=first_adapter,
+        enable_photo_selection=True,
+    )
+
+    assert not first_result.completed
+    restored = load_import_media_session(state_path)
+    assert restored.processed_source_files == [first]
+    assert restored.source_fingerprints == set()
+    resume_adapter = _PhotoSubsetAdapter(
+        selected_keys=[{"b", "c"}],
+        next_responses=[ImportResponse.ALL_MEDIA_READY],
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Subset",
+        day="Resume",
+        session=restored,
+        session_state_path=state_path,
+        interaction_adapter=resume_adapter,
+        enable_photo_selection=True,
+    )
+
+    assert result.success
+    assert [
+        candidate.key
+        for candidate in resume_adapter.photo_requests[0].candidates
+    ] == ["b", "c"]
+    assert {path.name for path in result.session.processed_source_files} == {
+        "A.ARW", "B.ARW", "C.ARW",
+    }
+    assert result.session.source_fingerprints
+
+
+def test_ambiguous_gui_stem_blocks_before_planning(
+    monkeypatch,
+    tmp_path: Path,
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    _write_photo(first, "DSC0001.ARW", b"first")
+    _write_photo(second, "dsc0001.arw", b"second")
+    selection = ImportMediaSelection(sources=[
+        _card(first, raw=1),
+        _card(second, raw=1),
+    ])
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: selection,
+    )
+    events = []
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Ambiguous",
+        day="Blocked",
+        event_sink=events.append,
+        interaction_adapter=_PhotoSubsetAdapter([], []),
+        enable_photo_selection=True,
+    )
+
+    assert not result.completed
+    failures = [event for event in events if event.type is ImportEventType.FAILED]
+    assert len(failures) == 1
+    assert failures[0].payload["code"] == "ambiguous_photo_stem"
+    assert len(failures[0].payload["conflicting_paths"]) == 2
+    assert not (tmp_path / "Photos_Master").exists()
+
+
+def test_gui_selection_cancel_stops_before_planning_and_preserves_state(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    _write_photo(root, "A.ARW", b"a")
+    selection = ImportMediaSelection(sources=[_card(root, raw=1)])
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: selection,
+    )
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.process_import_media_batch",
+        lambda *args, **kwargs: pytest.fail("planning must not start"),
+    )
+    state_path = tmp_path / "active.json"
+    state_path.write_bytes(b"existing-active-state")
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Cancel",
+        day="Safe",
+        session_state_path=state_path,
+        interaction_adapter=_PhotoSubsetAdapter(
+            selected_keys=[ImportResponse.CANCEL_PRESERVE_STATE],
+            next_responses=[],
+        ),
+        enable_photo_selection=True,
+    )
+
+    assert not result.completed
+    assert result.session.processed_source_files == []
+    assert result.session.source_fingerprints == set()
+    assert state_path.read_bytes() == b"existing-active-state"
+
+
+def test_runtime_seen_partial_card_does_not_hide_a_different_card(
+    monkeypatch,
+    tmp_path: Path,
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    _write_photo(first, "A.ARW", b"a")
+    _write_photo(first, "B.ARW", b"b")
+    _write_photo(second, "D.ARW", b"d")
+    discoveries = iter([
+        ImportMediaSelection(sources=[_card(first, raw=2)]),
+        ImportMediaSelection(sources=[
+            _card(first, raw=2), _card(second, raw=1),
+        ]),
+    ])
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: next(discoveries),
+    )
+    adapter = _PhotoSubsetAdapter(
+        selected_keys=[{"a"}, {"d"}],
+        next_responses=[
+            ImportResponse.RESCAN_MEDIA,
+            ImportResponse.ALL_MEDIA_READY,
+        ],
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="TwoCards",
+        day="Runtime",
+        interaction_adapter=adapter,
+        enable_photo_selection=True,
+    )
+
+    assert result.success
+    assert [
+        [candidate.key for candidate in request.candidates]
+        for request in adapter.photo_requests
+    ] == [["a", "b"], ["d"]]
+
+
+def test_changed_partial_card_fingerprint_is_offered_again(
+    monkeypatch,
+    tmp_path: Path,
+):
+    root = tmp_path / "card"
+    _write_photo(root, "A.ARW", b"a")
+    _write_photo(root, "B.ARW", b"b")
+    calls = 0
+
+    def discover(_settings):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            _write_photo(root, "C.ARW", b"c")
+            return ImportMediaSelection(sources=[_card(root, raw=3)])
+        return ImportMediaSelection(sources=[_card(root, raw=2)])
+
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        discover,
+    )
+    adapter = _PhotoSubsetAdapter(
+        selected_keys=[{"a"}, {"b", "c"}],
+        next_responses=[
+            ImportResponse.RESCAN_MEDIA,
+            ImportResponse.ALL_MEDIA_READY,
+        ],
+    )
+
+    result = run_import_media_session(
+        _settings(tmp_path),
+        year=2026,
+        project="Changed",
+        day="Fingerprint",
+        interaction_adapter=adapter,
+        enable_photo_selection=True,
+    )
+
+    assert result.success
+    assert [
+        [candidate.key for candidate in request.candidates]
+        for request in adapter.photo_requests
+    ] == [["a", "b"], ["b", "c"]]

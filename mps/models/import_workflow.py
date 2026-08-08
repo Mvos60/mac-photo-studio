@@ -7,6 +7,10 @@ from types import MappingProxyType
 from typing import Protocol
 
 from mps.models.import_file_result import ImportFileResult
+from mps.models.import_photo_selection import (
+    ImportPhotoCandidate,
+    ImportPhotoSelectionResponse,
+)
 
 
 class ImportEventType(str, Enum):
@@ -53,6 +57,7 @@ class ImportEvent:
 
 class ImportRequestType(str, Enum):
     NEXT_MEDIA_ACTION = "next_media_action"
+    SELECT_PHOTOS = "select_photos"
 
 
 class ImportWaitingReason(str, Enum):
@@ -64,7 +69,8 @@ class ImportWaitingReason(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ImportRequest:
     type: ImportRequestType
-    reason: ImportWaitingReason
+    reason: ImportWaitingReason | None = None
+    candidates: tuple[ImportPhotoCandidate, ...] = ()
 
 
 class ImportResponse(str, Enum):
@@ -73,6 +79,11 @@ class ImportResponse(str, Enum):
     CANCEL_PRESERVE_STATE = "cancel_preserve_state"
 
 
+ImportInteractionResponse = ImportResponse | ImportPhotoSelectionResponse
+
+
 class ImportInteractionAdapter(Protocol):
-    def request(self, request: ImportRequest) -> ImportResponse:
+    def request(
+        self, request: ImportRequest
+    ) -> ImportInteractionResponse:
         """Return one of the supported import workflow responses."""

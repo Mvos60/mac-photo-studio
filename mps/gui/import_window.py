@@ -13,6 +13,7 @@ from mps.gui.dialogs import (
     minimum_three_action_dialog_width,
 )
 from mps.gui.import_interaction_adapter import PendingImportInteraction
+from mps.gui.import_photo_selector import choose_import_photos
 from mps.models.import_file_result import (
     ImportFileResult,
     ImportFileResultStatus,
@@ -20,7 +21,11 @@ from mps.models.import_file_result import (
 from mps.models.import_media_selection import ImportMediaSelection
 from mps.models.import_progress import ImportProgress
 from mps.models.import_workflow import ImportEvent, ImportEventType
-from mps.models.import_workflow import ImportResponse, ImportWaitingReason
+from mps.models.import_workflow import (
+    ImportRequestType,
+    ImportResponse,
+    ImportWaitingReason,
+)
 from mps.services.import_controller import (
     ImportController,
     ImportControllerStatus,
@@ -78,6 +83,14 @@ IMPORT_CODE_MESSAGES = {
     ),
     "already_imported": "Already imported.",
     "copy_failed": "The file could not be copied and verified.",
+    "ambiguous_photo_stem": (
+        "Multiple RAW or JPG files have the same camera filename. "
+        "Nothing was imported."
+    ),
+    "photo_selection_cancelled": (
+        "Photo selection was cancelled. Nothing was imported."
+    ),
+    "photo_selection_empty": "Select at least one photograph to import.",
 }
 
 
@@ -645,9 +658,23 @@ class ImportWindow:
         self,
         interaction: PendingImportInteraction,
     ) -> None:
+        request = interaction.request
+        if request.type is ImportRequestType.SELECT_PHOTOS:
+            self._set("pairs", sum(
+                bool(candidate.raw_paths and candidate.jpeg_paths)
+                for candidate in request.candidates
+            ))
+            response = choose_import_photos(self._window, request.candidates)
+            interaction.respond(
+                response or ImportResponse.CANCEL_PRESERVE_STATE
+            )
+            return
+        if request.reason is None:
+            interaction.respond(ImportResponse.CANCEL_PRESERVE_STATE)
+            return
         interaction.respond(choose_waiting_for_media_action(
             self._window,
-            interaction.request.reason,
+            request.reason,
         ))
 
     def _notify_terminal(self) -> None:

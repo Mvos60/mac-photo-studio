@@ -13,6 +13,8 @@ from mps.models.import_media_session import (
     ImportMediaSessionDestination,
 )
 from mps.models.import_media_batch_plan import ImportMediaBatchPlan
+from mps.models.import_media_selection import ImportMediaSelection
+from mps.models.import_photo_selection import ImportPhotoSelectionResponse
 from mps.models.import_progress import ImportProgress
 from mps.models.import_file_result import ImportFileResult
 from mps.models.import_workflow import (
@@ -32,9 +34,14 @@ from mps.services.import_media_batch_processor import (
     process_import_media_batch,
 )
 from mps.services.import_media_discovery import discover_import_media
+from mps.services.import_photo_candidates import (
+    build_import_photo_candidates,
+    source_candidate_paths,
+)
 from mps.services.import_media_new_source_detector import (
     detect_new_media_sources,
 )
+from mps.services.media_source_identity import media_source_fingerprint
 from mps.services.import_media_partial_batch_recovery import (
     recover_verified_partial_batch_sources,
 )
@@ -159,6 +166,7 @@ def _run_import_media_session(
     event_sink: Callable[[ImportEvent], None] | None = None,
     interaction_adapter: ImportInteractionAdapter | None = None,
     wait_for_initial_media: bool = False,
+    enable_photo_selection: bool = False,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
 
@@ -203,6 +211,7 @@ def _run_import_media_session(
     copied = 0
     failed = 0
     import_root: Path | None = None
+    runtime_seen_source_fingerprints: set[str] = set()
 
     def stop_incomplete(code: str) -> ImportMediaWizardResult:
         emit(ImportEvent(
@@ -228,6 +237,13 @@ def _run_import_media_session(
             active_session,
             selection,
         )
+        if enable_photo_selection and runtime_seen_source_fingerprints:
+            new_media = ImportMediaSelection(sources=[
+                source
+                for source in new_media.sources
+                if media_source_fingerprint(source)
+                not in runtime_seen_source_fingerprints
+            ])
 
         emit(ImportEvent(
             ImportEventType.MEDIA_DISCOVERED,
@@ -319,6 +335,63 @@ def _run_import_media_session(
 
             break
 
+        selected_source_files: tuple[Path, ...] | None = None
+        completed_selection: ImportMediaSelection | None = None
+        partial_sources = []
+        if enable_photo_selection:
+            candidates = build_import_photo_candidates(
+                new_media,
+                settings,
+                processed_source_files=active_session.processed_source_files,
+            )
+            ambiguous = tuple(
+                candidate for candidate in candidates if candidate.ambiguous
+            )
+            if ambiguous:
+                emit(ImportEvent(
+                    ImportEventType.FAILED,
+                    {
+                        "code": "ambiguous_photo_stem",
+                        "conflicting_paths": tuple(
+                            str(path)
+                            for candidate in ambiguous
+                            for path in candidate.source_paths
+                        ),
+                    },
+                ))
+                return ImportMediaWizardResult(
+                    session=active_session,
+                    session_id=active_session_id,
+                    batches_processed=batches_processed,
+                    copied=copied,
+                    failed=failed,
+                    completed=False,
+                )
+            if not candidates:
+                selected_source_files = ()
+                completed_selection = new_media
+            else:
+                response = interaction.request(ImportRequest(
+                    ImportRequestType.SELECT_PHOTOS,
+                    candidates=candidates,
+                ))
+                if not isinstance(response, ImportPhotoSelectionResponse):
+                    return stop_incomplete("photo_selection_cancelled")
+                selected_source_files = response.selected_paths(candidates)
+                if not selected_source_files:
+                    return stop_incomplete("photo_selection_empty")
+                selected_paths = set(selected_source_files)
+                completed_sources = []
+                for source in new_media.sources:
+                    offered = source_candidate_paths(source, candidates)
+                    if offered and offered <= selected_paths:
+                        completed_sources.append(source)
+                    elif offered:
+                        partial_sources.append(source)
+                completed_selection = ImportMediaSelection(
+                    sources=completed_sources
+                )
+
         emit(ImportEvent(
             ImportEventType.BATCH_STARTED,
             {"source_count": new_media.source_count},
@@ -352,6 +425,8 @@ def _run_import_media_session(
             progress_callback=progress_callback,
             plan_callback=publish_plan,
             file_result_callback=publish_file_result,
+            source_files=selected_source_files,
+            completed_selection=completed_selection,
         )
 
         copied += result.copied
@@ -397,6 +472,12 @@ def _run_import_media_session(
                 copied=copied,
                 failed=failed,
                 completed=False,
+            )
+
+        if enable_photo_selection:
+            runtime_seen_source_fingerprints.update(
+                media_source_fingerprint(source)
+                for source in partial_sources
             )
 
         _record_destination(
@@ -552,6 +633,7 @@ def run_import_media_session(
     event_sink: Callable[[ImportEvent], None] | None = None,
     interaction_adapter: ImportInteractionAdapter | None = None,
     wait_for_initial_media: bool = False,
+    enable_photo_selection: bool = False,
 ) -> ImportMediaWizardResult:
     """Process and reconcile one or more photo media batches."""
 
@@ -572,6 +654,7 @@ def run_import_media_session(
             event_sink=event_sink,
             interaction_adapter=interaction_adapter,
             wait_for_initial_media=wait_for_initial_media,
+            enable_photo_selection=enable_photo_selection,
         )
     except Exception as exc:
         if event_sink is not None:
