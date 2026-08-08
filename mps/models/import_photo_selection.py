@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
+from typing import Iterable
 
 
 UNKNOWN_PHOTO_METADATA = "—"
+CONFLICTING_PHOTO_METADATA = "⚠ conflict"
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,7 +18,8 @@ class ImportPhotoCandidate:
     stem: str
     raw_paths: tuple[Path, ...] = ()
     jpeg_paths: tuple[Path, ...] = ()
-    captured_at: str | None = None
+    captured_at: datetime | None = None
+    captured_at_conflict: bool = False
     camera_model: str | None = None
 
     def __post_init__(self) -> None:
@@ -40,7 +44,11 @@ class ImportPhotoCandidate:
 
     @property
     def display_captured_at(self) -> str:
-        return self.captured_at or UNKNOWN_PHOTO_METADATA
+        if self.captured_at_conflict:
+            return CONFLICTING_PHOTO_METADATA
+        if self.captured_at is None:
+            return UNKNOWN_PHOTO_METADATA
+        return self.captured_at.strftime("%d-%m-%Y %H:%M")
 
     @property
     def display_camera_model(self) -> str:
@@ -63,3 +71,47 @@ class ImportPhotoSelectionResponse:
                 raise ValueError("Ambiguous photo candidates cannot be selected")
             paths.extend(candidate.source_paths)
         return tuple(paths)
+
+
+@dataclass(frozen=True, slots=True)
+class ImportPhotoSelectionSummary:
+    selected_count: int
+    earliest: datetime | None
+    latest: datetime | None
+    unique_dates: frozenset[date]
+    unknown_count: int
+    conflict_count: int
+    mismatch_count: int
+
+
+def summarize_import_photo_selection(
+    candidates: Iterable[ImportPhotoCandidate],
+    selected_keys: Iterable[str],
+    session_date: date | None,
+) -> ImportPhotoSelectionSummary:
+    """Summarize capture dates without changing import selection semantics."""
+    selected = frozenset(selected_keys)
+    selected_candidates = tuple(
+        candidate for candidate in candidates if candidate.key in selected
+    )
+    captured = tuple(
+        candidate.captured_at for candidate in selected_candidates
+        if candidate.captured_at is not None and not candidate.captured_at_conflict
+    )
+    return ImportPhotoSelectionSummary(
+        selected_count=len(selected_candidates),
+        earliest=min(captured, default=None),
+        latest=max(captured, default=None),
+        unique_dates=frozenset(value.date() for value in captured),
+        unknown_count=sum(
+            candidate.captured_at is None and not candidate.captured_at_conflict
+            for candidate in selected_candidates
+        ),
+        conflict_count=sum(
+            candidate.captured_at_conflict for candidate in selected_candidates
+        ),
+        mismatch_count=(
+            sum(value.date() != session_date for value in captured)
+            if session_date is not None else 0
+        ),
+    )

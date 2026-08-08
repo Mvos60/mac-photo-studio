@@ -12,6 +12,10 @@ from mps.services.import_media_batch_planner import (
     filter_new_source_files,
     source_files_for_selection,
 )
+from mps.services.import_photo_metadata import (
+    read_datetime_original,
+    resolve_candidate_captured_at,
+)
 
 
 def build_import_photo_candidates(
@@ -60,17 +64,24 @@ def build_import_photo_candidates(
         assert isinstance(paths, list)
         paths.append(path)
 
+    metadata = read_datetime_original(eligible)
     candidates = []
     for key, group in sorted(grouped.items()):
         raw_paths = group["raw"]
         jpeg_paths = group["jpeg"]
         assert isinstance(raw_paths, list)
         assert isinstance(jpeg_paths, list)
+        source_paths = tuple(sorted(raw_paths)) + tuple(sorted(jpeg_paths))
+        captured_at, captured_at_conflict = resolve_candidate_captured_at(
+            source_paths, metadata,
+        )
         candidates.append(ImportPhotoCandidate(
             key=key,
             stem=str(group["stem"]),
             raw_paths=tuple(sorted(raw_paths)),
             jpeg_paths=tuple(sorted(jpeg_paths)),
+            captured_at=captured_at,
+            captured_at_conflict=captured_at_conflict,
         ))
     return tuple(candidates)
 

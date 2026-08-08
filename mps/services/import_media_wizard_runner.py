@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -374,6 +375,12 @@ def _run_import_media_session(
                 response = interaction.request(ImportRequest(
                     ImportRequestType.SELECT_PHOTOS,
                     candidates=candidates,
+                    session_date=(
+                        date(destination_selection.year,
+                             int(destination_selection.month),
+                             int(destination_selection.day))
+                        if destination_selection is not None else None
+                    ),
                 ))
                 if not isinstance(response, ImportPhotoSelectionResponse):
                     return stop_incomplete("photo_selection_cancelled")

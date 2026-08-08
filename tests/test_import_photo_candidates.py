@@ -100,3 +100,22 @@ def test_duplicate_jpeg_stem_is_retained_as_ambiguous(tmp_path: Path):
     assert len(candidates) == 1
     assert candidates[0].ambiguous
     assert set(candidates[0].jpeg_paths) == {first_path, second_path}
+
+
+def test_candidates_receive_batched_capture_metadata(monkeypatch, tmp_path: Path):
+    from datetime import datetime
+    card = tmp_path / "card"
+    raw = _photo(card, "DSC0001.ARW", b"raw")
+    jpg = _photo(card, "DSC0001.JPG", b"jpg")
+    selection = ImportMediaSelection(sources=[_card(card, raw=1, jpeg=1)])
+    captured = datetime(2026, 6, 10, 14, 31)
+    calls = []
+    def metadata(paths):
+        paths = tuple(paths)
+        calls.append(paths)
+        return {raw: captured, jpg: captured}
+    monkeypatch.setattr("mps.services.import_photo_candidates.read_datetime_original", metadata)
+    candidates = build_import_photo_candidates(selection, _settings(tmp_path))
+    assert calls == [(raw, jpg)]
+    assert candidates[0].captured_at == captured
+    assert not candidates[0].captured_at_conflict

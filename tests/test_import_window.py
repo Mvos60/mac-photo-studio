@@ -867,3 +867,24 @@ def test_codes_stay_internal_and_messages_are_readable():
     assert humanize_import_code("unknown_code") == (
         "The import reported an additional status."
     )
+
+
+def test_photo_selection_passes_session_date_to_selector(monkeypatch):
+    from datetime import date
+    instance = window()
+    candidates = (ImportPhotoCandidate("a", "A", raw_paths=(Path("A.ARW"),)),)
+    pending = PendingImportInteraction(ImportRequest(
+        ImportRequestType.SELECT_PHOTOS, candidates=candidates,
+        session_date=date(2026, 6, 10),
+    ))
+    received = []
+    expected = ImportPhotoSelectionResponse(frozenset({"a"}))
+    def choose(parent, offered, *, session_date):
+        received.append((offered, session_date))
+        return expected
+    monkeypatch.setattr("mps.gui.import_window.choose_import_photos", choose)
+    instance.apply_event(ImportEvent(
+        ImportEventType.INTERACTION_REQUESTED, {"interaction": pending},
+    ))
+    assert received == [(candidates, date(2026, 6, 10))]
+    assert pending.wait(__import__("threading").Event()) is expected

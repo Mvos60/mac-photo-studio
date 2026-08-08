@@ -2310,3 +2310,28 @@ def test_changed_partial_card_fingerprint_is_offered_again(
         [candidate.key for candidate in request.candidates]
         for request in adapter.photo_requests
     ] == [["a", "b"], ["b", "c"]]
+
+
+def test_gui_photo_request_receives_validated_manual_session_date(monkeypatch, tmp_path: Path):
+    from datetime import date
+    root = tmp_path / "card"
+    _write_photo(root, "A.ARW", b"a")
+    selection = ImportMediaSelection(sources=[_card(root, raw=1)])
+    monkeypatch.setattr(
+        "mps.services.import_media_wizard_runner.discover_import_media",
+        lambda settings: selection,
+    )
+    adapter = _PhotoSubsetAdapter(
+        selected_keys=[ImportResponse.CANCEL_PRESERVE_STATE],
+        next_responses=[],
+    )
+    destination = ImportDestinationSelection(
+        year=2026, month_day="06-10", project="EXIF",
+    )
+    result = run_import_media_session(
+        _settings(tmp_path), year=2026, project="EXIF", day="06-10",
+        destination_selection=destination,
+        interaction_adapter=adapter, enable_photo_selection=True,
+    )
+    assert not result.completed
+    assert adapter.photo_requests[0].session_date == date(2026, 6, 10)

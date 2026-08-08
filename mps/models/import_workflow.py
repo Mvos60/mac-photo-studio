@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 from types import MappingProxyType
 from typing import Protocol
@@ -71,6 +72,7 @@ class ImportRequest:
     type: ImportRequestType
     reason: ImportWaitingReason | None = None
     candidates: tuple[ImportPhotoCandidate, ...] = ()
+    session_date: date | None = None
 
 
 class ImportResponse(str, Enum):

@@ -664,7 +664,11 @@ class ImportWindow:
                 bool(candidate.raw_paths and candidate.jpeg_paths)
                 for candidate in request.candidates
             ))
-            response = choose_import_photos(self._window, request.candidates)
+            response = choose_import_photos(
+                self._window,
+                request.candidates,
+                session_date=request.session_date,
+            )
             interaction.respond(
                 response or ImportResponse.CANCEL_PRESERVE_STATE
             )
